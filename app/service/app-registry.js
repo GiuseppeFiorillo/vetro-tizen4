@@ -7,7 +7,7 @@ var HEX_FIELD_RE = /^(?:[a-fA-F0-9]{2})*$/;
 var NO_DEPENDENCY_TABLE_RE = /^Error: (?:in prepare, )?no such table: package_dependency_info(?: \(\d+\))?\s*$/;
 var REGISTERED_ID_RE = /^[A-Za-z0-9_.-]+$/;
 var ICON_COMMAND_RE = /^\/(?:usr\/apps|opt\/usr\/apps)\/[A-Za-z0-9_.\/-]+\.(?:png|jpg|jpeg)$/i;
-function command(sql){return 'sqlite3 -readonly /opt/dbspace/.pkgmgr_parser.db "'+sql+'"';}
+function command(sql){return 'sqlite3 /opt/dbspace/.pkgmgr_parser.db "'+sql+'"';}
 function fields(text){return String(text||'').trim().split('\n').filter(Boolean).map(function(line){return line.split('|').map(function(v){if(!HEX_FIELD_RE.test(v))throw new Error('invalid registry field');return Buffer.from(v,'hex').toString('utf8');});});}
 function query(execute,sql){return execute(command(sql),15000).then(function(r){if(r.exit_code||r.timed_out)throw new Error('registry query failed');return fields(r.stdout);});}
 // Older firmware omits this table. Only that specific schema error is optional;
@@ -24,7 +24,7 @@ function load(execute,probe){
     return Promise.all([
         query(execute,"SELECT hex(a.app_id),hex(a.package),hex(a.app_type),hex(a.app_component),hex(COALESCE((SELECT is_disabled FROM package_app_info_for_uid u WHERE u.app_id=a.app_id AND u.uid=OWNER_UID),a.app_disable)),hex(a.app_removable),hex(p.package_version),hex(p.package_size),hex(p.author_name),hex(p.package_system),hex(p.package_preload),hex(a.app_onboot),hex(a.app_autorestart),hex(a.app_nodisplay),hex((SELECT app_label FROM package_app_localized_info l WHERE l.app_id=a.app_id AND app_label != '' ORDER BY CASE WHEN app_locale='en_US' THEN 0 ELSE 1 END LIMIT 1)),hex((SELECT app_icon FROM package_app_localized_info l WHERE l.app_id=a.app_id AND app_icon != '' LIMIT 1)) FROM package_app_info a LEFT JOIN package_info p ON p.package=a.package;".replace('OWNER_UID',String(ownerUid))),
         dependencyQuery(execute),
-        execute('sqlite3 -readonly /opt/dbspace/user/'+ownerUid+'/.pkgmgr_parser.db \"SELECT hex(app_id),hex(is_disabled) FROM package_app_info_for_uid WHERE uid='+ownerUid+';\"',5000).then(function(r){return r.exit_code?[]:fields(r.stdout)})
+        execute('sqlite3 /opt/dbspace/user/'+ownerUid+'/.pkgmgr_parser.db \"SELECT hex(app_id),hex(is_disabled) FROM package_app_info_for_uid WHERE uid='+ownerUid+';\"',5000).then(function(r){return r.exit_code?[]:fields(r.stdout)})
     ]).then(function(data){
         var registered={};data[0].forEach(function(f){if(!REGISTERED_ID_RE.test(f[0]))return;registered[f[0]]=true;var r=byId[f[0]];
             if(!r){r=apps.normalize([{id:f[0],packageId:f[1],show:false}],[])[0];rows.push(r);byId[f[0]]=r;}

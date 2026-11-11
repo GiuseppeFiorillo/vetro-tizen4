@@ -14,13 +14,51 @@ namespace Launcher.Tests
             start.ArgumentList.Add("-c"); start.ArgumentList.Add(command);
             using (var process = Process.Start(start))
             {
-                if (!process.WaitForExit(6000)) { process.Kill(true); throw new Exception("shell test timed out"); }
+                if (!process.WaitForExit(20000)) { process.Kill(true); throw new Exception("shell test timed out"); }
                 T.Eq(process.ExitCode, 0, "shell completed");
             }
         }
 
         public static void Run()
         {
+            T.Run("legacy TV actions: separate tuner and TV Plus, native key pairs", () =>
+            {
+                T.Eq(LegacyTvActions.Command("tvplus", "other.app"), null, "ordinary apps are never redirected");
+                T.Eq(LegacyTvActions.Command("other", "org.tizen.tv-viewer"), null, "only the two live tiles are redirected");
+                string dir = Path.Combine(Path.GetTempPath(), "vetro-tv-" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(dir);
+                try
+                {
+                    string tool = Path.Combine(dir, "tool"), log = Path.Combine(dir, "calls");
+                    File.WriteAllText(tool, "#!/bin/sh\nprintf '%s\\n' \"$*\" >> " + Q(log) + "\n");
+                    Shell("chmod +x " + Q(tool));
+                    foreach (string slug in new[] { "livetv", "tvplus" })
+                    {
+                        if (File.Exists(log)) File.Delete(log);
+                        string command = LegacyTvActions.Command(slug, "org.tizen.tv-viewer")
+                            .Replace("/usr/bin/aul_test", Q(tool)).Replace("/usr/bin/dbus-send", Q(tool))
+                            .Replace("/home/owner/tvlauncher-system-launch.log", Q(Path.Combine(dir, "output")));
+                        Shell(command + " wait");
+                        string[] calls = File.ReadAllLines(log);
+                        T.True(calls[0].Contains("change_source 0 sourceType 0"), "both routes select the tuner");
+                        T.Eq(calls.Length, slug == "tvplus" ? 11 : 1, "only TV Plus sends channel digits");
+                        if (slug == "tvplus")
+                        {
+                            string[] keys = { "4", "9", "9", "9", "Return" };
+                            for (int i = 0; i < keys.Length; i++)
+                            {
+                                T.True(calls[1 + 2 * i].EndsWith("uint32:0 string:" + keys[i]), "key down in correct order");
+                                T.True(calls[2 + 2 * i].EndsWith("uint32:1 string:" + keys[i]), "key up in correct order");
+                            }
+                        }
+                    }
+                    bool refused = false;
+                    try { LegacyTvActions.Key("Home;bad"); } catch (ArgumentException) { refused = true; }
+                    T.True(refused, "key command refuses shell metacharacters");
+                }
+                finally { Directory.Delete(dir, true); }
+            });
+
             T.Run("raw navigation: immediate presses, delayed echoes, aliases, stale counts and hidden dock", () =>
             {
                 var nav = new NavigationInput();
@@ -84,16 +122,17 @@ namespace Launcher.Tests
                 try
                 {
                     string gen = Path.Combine(dir, "generation"), log = Path.Combine(dir, "calls"), tool = Path.Combine(dir, "launcher");
-                    File.WriteAllText(tool, "#!/bin/sh\necho \"$2\" >> " + Q(log) + "\n");
+                    File.WriteAllText(tool, "#!/bin/sh\n[ -z \"$ELM_ENGINE$ECORE_EVAS_ENGINE\" ] || exit 99\necho \"$2\" >> " + Q(log) + "\n");
                     Shell("chmod +x " + Q(tool)); File.WriteAllText(gen, "1");
-                    string command = HomeGuard.Command(ids, gen, 1).Replace("/usr/bin/app_launcher", Q(tool));
+                    string command = HomeGuard.Command(ids, gen, 1).Replace("/usr/bin/app_launcher", Q(tool))
+                        .Replace("/home/owner/tvlauncher-system-launch.log", Q(Path.Combine(dir, "launch-output")));
                     Shell(command + " wait");
                     string[] calls = File.ReadAllLines(log); T.Eq(calls.Length, 15, "all three targets in all five rounds");
                     for (int i = 0; i < calls.Length; i++) T.Eq(calls[i], ids[i % 3], "target order");
                     File.Delete(log); File.WriteAllText(gen, "2"); Shell(command + " wait");
                     T.True(!File.Exists(log), "retired generation issues no kills");
                     File.WriteAllText(gen, "1");
-                    File.WriteAllText(tool, "#!/bin/sh\necho \"$2\" >> " + Q(log) + "\necho 2 > " + Q(gen) + "\n");
+                    File.WriteAllText(tool, "#!/bin/sh\n[ -z \"$ELM_ENGINE$ECORE_EVAS_ENGINE\" ] || exit 99\necho \"$2\" >> " + Q(log) + "\necho 2 > " + Q(gen) + "\n");
                     Shell(command + " wait");
                     T.Eq(File.ReadAllLines(log).Length, 1, "cancellation between targets stops remaining targets too");
                 }

@@ -1,6 +1,8 @@
 # Contributing
 
-Keep features in `app/` and privileged integration in `rooting/`. Preserve the
+Keep dashboard features in `app/`, launcher code in `dock/`, Tizen 4 integration in
+`chain/`, and boot-hook tools in `kant-m2-root/`. The inherited newer-TV integration
+lives in `rooting/`. Preserve the
 platform contract and standalone build boundary. Do not introduce device-specific
 addresses, certificates, raw logs or personal reports into commits.
 

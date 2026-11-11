@@ -6,7 +6,7 @@ none of this implementation.
 
 - `service/`: adapter, transport, authenticated root-agent protocol and staging.
 - `payload/`: active runtime components used by the integration builder.
-- `tools/samsung-tv-root-master/`: only the C# payload sources Vetro builds from (`payloads/common`) and the upstream Unlicense, trimmed from [chris-ritsen/samsung-tv-root](https://github.com/chris-ritsen/samsung-tv-root).
+- `tools/samsung-tv-root-master/`: upstream research/source with its original Unlicense.
 - `tests/`: isolated lifecycle, authentication, injection validation and detached-launch tests.
 - `on-boot-probe/package*.json`: signing dependency manifests. Historical prototypes
   and device material are local-only; they are not release dependencies.
@@ -105,3 +105,26 @@ The upstream host timing-probe retry and frozen-Linux OpenSSL fix are not used b
 this TV-local adapter. The native-spawn failure and corrected service startup
 were checked on the owner's Q80A. Runtime detection, capability checks and
 loopback capture have offline test coverage; .NET 6+ remains untested on hardware.
+
+## Offline .NET 2.0 experiment (Q6 / Tizen 4 research)
+
+`node build-legacy-experiment.cjs` compiles the retained archive launcher and
+root agent against `netcoreapp2.0`. Set `DOTNET` to a local SDK executable and,
+optionally, `OUT` to an experiment directory. Generated files default to
+`dist/legacy-net2-experiment`, outside packaged `payload/`; output there is
+refused. No runtime selection or launch path opts into this experiment.
+
+The root-agent C# source compiles unchanged. The archive launcher replaces
+`ProcessStartInfo.ArgumentList` (not available in .NET 2.0) with `Arguments`,
+using only the validated hex package name and fixed paths. Source drift or a
+missing validation guard stops the conversion. Both components compiled with
+SDK 8.0.427. NuGet reports end-of-support and a vulnerability in the historical
+2.0 reference package; this is an API compilation experiment, not a supported
+runtime distribution. No CLR is bundled or installed on a TV.
+
+This establishes managed API portability only. The Q6's actual CLR version,
+ABI, file capabilities, SMACK policy and privileged execution route remain
+unverified. Root is not obtained by retargeting C#. The standard preflight
+continues rejecting .NET 2.0; neither the runtime gate nor the Node key-generation
+gate is bypassed. `NODE4_BINARY=/path/to/node4 node tests/run.cjs` additionally
+runs an offline preflight parser fixture on the actual legacy JavaScript runtime.

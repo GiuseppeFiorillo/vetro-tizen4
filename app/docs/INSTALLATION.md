@@ -1,171 +1,303 @@
-# Install Vetro on your TV
+# Install Vetro on a Tizen 4 Kant-M2 TV
 
 [Back to Vetro](../../README.md) · [Compatibility](../../README.md#compatibility)
 
-## Choose a way
+## One way, and why
 
-- **[1. Apps2Samsung](#1-apps2samsung-the-fastest)**: the fastest. A one-click installer that handles the certificate, the signing and the install.
-- **[2. With a coding agent](#2-with-a-coding-agent)**: an AI coding agent with a terminal follows this guide for you. Not Claude.
-- **[3. Manual](#3-manual)**: Tizen Studio and your own Samsung certificate, step by step.
+This fork has **one validated installation path**:
 
-All three ways end with the same **[last steps](#last-steps-all-three-ways)**: open Vetro once, set **Host PC IP** to `127.0.0.1`, restart the TV.
+```text
+USB root chain  →  root shell on the TV  →  build this fork  →  install from the root shell  →  optional boot hook
+```
+
+The other routes that upstream documents do **not** work on these TVs:
+
+- **Apps2Samsung / the community catalog** installs the upstream Vetro 0.5.0 package. Upstream has no Tizen 4 port, so the launcher and the privileged features do not start on a Kant-M2 set. The package is not broken; it is the wrong build.
+- **The prebuilt signed packages** are signed by someone else and, again, contain the upstream build.
+- **The coding-agent route** only automates one of the routes above.
+
+So: root first with the USB stick, then install the package you build here from the root shell.
 
 **Good to know before you start**
 
 - Use only a TV you own or are allowed to manage. Check the [compatibility table](../../README.md#compatibility) first.
-- You need a computer (or, with Apps2Samsung, a phone) on the same trusted network as the TV.
-- Vetro needs the package **with the root integration**. The app-only package (`node build.cjs` in `app/`) shows the TV's apps but cannot change anything, and says *TV platform adapter unavailable*.
-- You never run any C# file, DLL or "archive chain" yourself: those are parts of the root integration, and they start by themselves after the last steps.
-- There is no signed installer to download: a Samsung certificate belongs to its owner and is tied to your TV.
+- The only target validated for this fork is a **QE49Q6FNA, firmware `T-KTM2DEUC-1400.2`**. The USB exploit is tied to the Kant-M2 kernel; another firmware needs its own port.
+- **Developer Mode and Host PC IP are not part of this route.** Vetro talks to a root daemon on the TV's loopback, not to the TV's SDB service.
+- Keep one computer on the same trusted LAN for the whole procedure: it builds the stick, runs the listener and serves the package.
+- **Never install both persistence mechanisms.** The USB repository has its own persistent daemon and this fork has its own boot hook. Both edit `/opt/etc/parseinfo.sh`. Use one; this guide uses the Vetro one.
+- Root changes the TV at a privileged level. Read each step before running it, and keep the USB stick: it is the recovery route.
 
-## 1. Apps2Samsung (the fastest)
+**What you need**
 
-[Apps2Samsung](https://github.com/Apps2Samsung/Apps2Samsung) is a free installer for Samsung Tizen TVs by [PatrickSt1991](https://github.com/PatrickSt1991). Vetro is in its community catalog. Many thanks to Patrick for the tool, and for the install-leftovers cleanup that Vetro ported from it.
+| Component | Why |
+| --- | --- |
+| Python 3.11+ with `pyelftools==0.33`, `capstone==5.0.9` | builds the USB image |
+| Clang with the ARM integrated assembler | assembles the USB stages |
+| A USB stick of at least 128 MB | is erased completely |
+| Node.js 22 | builds and signs the package |
+| .NET SDK 8 | builds the launcher for both Tizen 4 runtimes |
+| Tizen Studio 6.1 + Samsung Certificate Extension | your own author and distributor certificate |
+| `curl` on the TV | already present on the tested firmware |
 
-- **Get Apps2Samsung** from its [releases page](https://github.com/Apps2Samsung/Apps2Samsung/releases): desktop app (Windows, macOS, Linux), Android app, or command line.
-- **Turn on Developer Mode** on the TV: open **Apps**, enter **12345** with the remote, switch Developer Mode on, set **Host PC IP** to the address of the computer or phone running Apps2Samsung, and restart the TV. Apps2Samsung tells you if something is not ready.
-- **Find Vetro** in the catalog (under *Tools*). It has a *root* badge: confirm when Apps2Samsung asks.
-- **Port (optional):** Vetro uses port 8099. Change it only if another app on the TV uses the same port (for example tizen-youtube).
-- **First install only:** Apps2Samsung asks you to sign in to your Samsung account once, to create the certificate for your TV.
-- **From the command line:** `apps2samsung-cli install "Vetro" --tv TV_IP --allow-root`.
-- Then do the **[last steps](#last-steps-all-three-ways)**.
+## 1. Root the TV with the USB chain
 
-Two community reports in the compatibility table (#10 and #17) installed Vetro this way.
+Obtain initial root with [`samsung-tv-usb-root-kant-m2`](https://github.com/GiuseppeFiorillo/samsung-tv-usb-root-kant-m2). Read its README before flashing; the short version follows.
 
-## 2. With a coding agent
-
-A coding agent is an AI assistant that can run commands in a terminal on your computer. It can follow this guide and do the technical part for you.
-
-- **Which agent:** one that can use a terminal, for example **Codex** or **Gemini CLI**.
-- **Not Claude:** its cybersecurity safeguards stop it on the root steps.
-- **What you still do yourself:** everything on the TV with the remote (Developer Mode, Host PC IP, restarts), the Samsung account sign-in in the browser, and certificate passwords. **Type passwords yourself, in the terminal or the sign-in page. Never paste them into the chat with the agent.**
-- **What to ask**, for example:
-
-  > Install Vetro (https://github.com/andrearicci93/vetro) on my Samsung TV at 192.168.1.100. Follow app/docs/INSTALLATION.md. Use Apps2Samsung's command line (apps2samsung-cli) if you can, otherwise the manual way. Explain each step before running it, stop whenever I have to do something on the TV, and never ask me to paste a password into the chat.
-
-- Check what the agent does: it runs commands on your computer.
-- Then do the **[last steps](#last-steps-all-three-ways)**, if the agent has not already walked you through them.
-
-## 3. Manual
-
-What you do, once, from a computer on the same network as the TV:
-
-- **Requirements:** Tizen Studio and your own Samsung certificate (step 1).
-- **Developer Mode** on the TV, pointed at your computer (step 2).
-- **Build and sign** the package with the root integration (step 3).
-- **Install** it on the TV and check it (step 4).
-- Then the **[last steps](#last-steps-all-three-ways)**.
-
-Expect it to take some patience the first time.
-
-### 1. Check requirements
-
-Tizen Studio has been deprecated in favor of the Tizen Extension for VSCode. The last Tizen Studio release is available [here](https://download.tizen.org/sdk/Installer/tizen-studio_6.1/). You'll want the installer starting with `web-ide_` for your platform.
-
-Install Tizen Studio's TV extension and Samsung Certificate Extension from the official tools. Create your own author/distributor certificate profile bound to your TV. The integration's on-boot service has been investigated with Partner-level distribution privileges; ordinary public signing is not evidence that boot execution is supported.
-
-Do not reuse someone else's signed package or certificates. Historical signing material is excluded from the release. Review [Samsung's TV-device setup guide](https://developer.samsung.com/smarttv/develop/getting-started/using-sdk/tv-device.html) for your model's installation workflow.
-
-The certificate is bound to your TV's DUID (its device ID). One community report found it on the TV under **Smart Hub Information → Unique Device ID**; menu names vary by model.
-
-If Certificate Manager fails with `ArrayIndexOutOfBoundsException`, check whether a DNS filter or ad blocker on the computer blocks `svdca.samsungqbe.com`. A community report found that the plugin then saved the block page as `author.crt`; allowing the domain made the official certificate flow work.
-
-### 2. Enable Developer Mode
-
-On the tested TV, open **Apps**, enter **12345** using the remote, enable Developer Mode, enter the installation computer's LAN IP in **Host PC IP**, and restart the TV. Menu names can vary by model. Connect the TV and computer to the same trusted LAN.
-
-There are two different addresses to keep separate:
-
-| Address | Meaning | Where to use it |
-| --- | --- | --- |
-| `TV_IP`, for example `192.168.1.100` | TV's LAN address | SDB connection and browser dashboard |
-| `127.0.0.1` | Loopback of the machine using it | TV's autonomous integration talks to its own SDB service; a PC using this address talks to itself |
-
-During installation, **Host PC IP** is the computer's LAN address. Once Vetro is installed you change it to `127.0.0.1` (in the [last steps](#last-steps-all-three-ways)): that is what lets the TV start its own root helper. Do not change the TV's custom DNS to accomplish this.
+### 1.1 Build the stick
 
 ```sh
-export TV_IP=192.168.1.100  # replace with your TV address
-sdb connect "$TV_IP:26101"
-sdb devices
+git clone https://github.com/GiuseppeFiorillo/samsung-tv-usb-root-kant-m2
+cd samsung-tv-usb-root-kant-m2
+python3 -m venv .venv
+. .venv/bin/activate
+python -m pip install -r requirements.txt
+python -m unittest discover -s tests -v          # optional, offline
 ```
 
-### 3. Build and sign the package with the root integration
+Build the image with the address the TV can reach. `LISTENER_IP` is **your computer's LAN address**, not the TV's:
 
-Install signing dependencies with `npm ci` in `rooting/on-boot-probe`. Despite its historical name, only its dependency manifests are required by the current builder. Set `AUTHOR_P12`, `DIST_P12`, `AUTHOR_PW` and `DIST_PW` to your own certificate paths and passwords outside the repository. Use your shell or secret manager to supply passwords without committing them.
+```sh
+python tools/build.py --variant umh-boot --beacon HOST_LAN_IP:4444
+```
+
+The output is `out/umh-boot/usb.img`, plus a `manifest.json` with the size and SHA-256 of every file. The port 4444 is the beacon; the root shell comes back on **4445**.
+
+### 1.2 Flash the stick
+
+**This erases the whole USB device.** Check twice which disk it is.
+
+```sh
+diskutil list                          # macOS: find the USB disk, for example disk8
+sudo CONFIRM_WRITE=YES bash tools/write_usb.sh out/umh-boot/usb.img disk8
+```
+
+On Linux:
+
+```sh
+sudo dd if=out/umh-boot/usb.img of=/dev/sdX bs=4M conv=fsync status=progress
+sync
+```
+
+`write_usb.sh` refuses internal disks, partial disks and a missing confirmation.
+
+### 1.3 Start the listener before the TV boots
+
+The TV opens a **reverse** shell: it connects out to your computer. You cannot connect to the TV on 4445.
+
+```sh
+python lab/relay_shell_4445.py --bind 0.0.0.0 --port 4445 \
+  --log out/root_shell.log --commands out/cmds.txt
+```
+
+Allow incoming connections on 4444 and 4445 in the computer's firewall. Commands are sent by **appending** them to `out/cmds.txt`; output appears in `out/root_shell.log`. Append only after the connection is reported, because bytes written earlier are skipped on reconnect.
+
+### 1.4 Boot the TV with the stick inserted
+
+1. Turn the TV off and unplug it for 30 seconds.
+2. Insert the USB stick.
+3. Power the TV on and leave it alone. The chain parks the boot thread and the watchdog restarts the set about 20 seconds later. The shell connects after that restart.
+4. When the relay prints a connection, check the log for `uid=0(root)`. The listener must already be running: the TV tries once per cold boot and does not retry.
+
+**Remove the stick as soon as the shell is up.** Leaving it in across several boots produced a reboot loop on the tested set. The shell survives the removal, so keep it: **do not reboot the TV until step 3.4**.
+
+From here on, every "run on the TV" command is appended to `out/cmds.txt`, in the `samsung-tv-usb-root-kant-m2` folder.
+
+## 2. Build Vetro for Tizen 4
+
+Do this on the computer while the root shell is alive.
+
+### 2.1 Get the fork
+
+Clone this fork from its GitHub page or download its source archive, then enter the repository root:
+
+```sh
+cd /path/to/your/vetro-checkout
+```
+
+### 2.2 Build the launcher
+
+The dock is built twice: `netcoreapp3.1` for TVs with `/usr/bin/dotnet`, and `netcoreapp2.0` for the `corerun` that the Kant-M2 firmware ships. The package chooses at runtime.
+
+```sh
+cd dock
+DOTNET=/path/to/dotnet ./build.sh
+cd ..
+```
+
+This copies four files into `app/native/dock/`. The package build fails later if they are missing.
+
+### 2.3 Assemble and sign the package
+
+The signing dependencies are declared in `rooting/on-boot-probe`:
 
 ```sh
 cd rooting/on-boot-probe
 npm ci
-cd ..
-# Supply certificate variables securely before running this command.
-OUT=/tmp/vetro.wgt node build.cjs
+cd ../..
 ```
 
-**Port clash (for example with tizen-youtube):** Vetro listens on port 8099. If another app on the TV uses the same port, build with another one, for example `VETRO_PORT=9000 OUT=/tmp/vetro.wgt node build.cjs` (a whole number from 1024 to 65535, not 8001 or 8002). The port is written into the package, so the dashboard is then at `http://TV_IP:9000/`, and the scripts need `--base http://TV_IP:9000`. Changing it later means building and installing again.
-
-The resulting integration WGT contains privileged components. There is no universal certificate or guaranteed root compatibility. The bundled integration derives from [Samsung TV root research](https://github.com/chris-ritsen/samsung-tv-root); consult its compatibility information and [integration notes](../../rooting/README.md). Do not treat successful signing as successful privilege acquisition.
-
-### 4. Install and verify
-
-Select the connected TV target in Tizen Studio Device Manager, permit app installation for your certificate profile, and install `/tmp/vetro.wgt`. Alternatively, use the configured Tizen CLI target:
+Build the unsigned package, then sign it with **your own** author and distributor certificates. Do not reuse someone else's package or certificates.
 
 ```sh
-tizen install -n /tmp/vetro.wgt -t YOUR_TV_TARGET
+cd chain
+node build.cjs
+AUTHOR_P12=/path/to/author.p12 \
+DIST_P12=/path/to/distributor.p12 \
+AUTHOR_PW=... DIST_PW=... \
+node sign.cjs
+cd ..
 ```
 
-**Use `tizen install`, not `sdb install`.** A community report found that installing with `sdb` did nothing and showed no error, while `tizen install` worked. After Tizen Studio is installed, the tools are typically in `~/tizen-studio/tools/sdb` and `~/tizen-studio/tools/ide/bin/tizen` (the folder may differ, and they may not be on your `PATH`). To check that the installation reached the TV, `sdb shell 0 vd_applist` lists the apps installed on it; Vetro should be in the list.
+Output: `chain/dist/vetro-chain-signed.wgt`. The signing script sets both signature files the TV checks (`author-signature.xml`, `signature1.xml`). Tizen Studio's Certificate Manager keeps the exported `.p12` files under `~/tizen-studio-data/keystore/`; export your profile there and pass those paths.
 
-## Last steps (all three ways)
+The package is **one** install: dashboard, background service, root agent, launcher, plus the Tizen 4 runtime pieces.
 
-### Open Vetro once
+**Port clash** (for example with tizen-youtube): Vetro uses 8099. Rebuild with `VETRO_PORT=9000` in front of `node build.cjs` if another app already uses it. The dashboard then moves to `http://TV_IP:9000/`.
 
-- Open **Vetro** on the TV once after installing. **This is required:** on some TVs the installer registers the service with start at boot and auto-restart off. Vetro turns them on by itself (since 0.3.2), but only after it has run once and the root agent has connected. Until then the service does not start by itself after a restart ([#25](https://github.com/andrearicci93/vetro/issues/25)).
-- Visit `http://TV_IP:8099/` from a browser on the same network (or your port, if you changed it). Check the app list, the probe status and the platform connection.
-- A visible icon or an accepted install is not proof that the background service or the root agent works.
+### 2.4 Build the optional root boot hook
 
-### Let the TV reach its own SDB service
+This is the part that keeps root and the Vetro daemon across cold boots. It is built and installed from the root shell you already have.
 
-The root helper is started through the TV's own SDB service, so the TV has to talk to itself.
+```sh
+cd kant-m2-root
+python3 tools/build_bundle.py
+./check.sh          # optional: runs the offline tests and rebuilds the bundle
+cd ..
+```
 
-- On the TV, open the Developer Mode screen again (**Apps**, then **12345**).
-- Set **Host PC IP** to `127.0.0.1` and restart the TV.
-- Wait up to 90 seconds and open the dashboard. It says *Root agent: connected* when it worked.
+`python3 tools/build_bundle.py` writes `out/vetro-boot-install.sh`, a single self-contained installer.
 
-Good to know:
+### 2.5 Serve both files to the TV
 
-- This setting is tested on a Q80A. Community reports from other models describe the same step as the one that made the TV root itself.
-- While it is set, a computer can no longer use SDB on this TV. To install a new build from a computer, put the computer's IP back, restart the TV, install, and repeat this step afterwards.
+```sh
+mkdir -p /tmp/vetro-install
+cp chain/dist/vetro-chain-signed.wgt kant-m2-root/out/vetro-boot-install.sh /tmp/vetro-install/
+cd /tmp/vetro-install
+python3 -m http.server 8000 --bind 0.0.0.0
+```
 
-### Check that it starts by itself
+Note your computer's LAN address: the TV downloads from `http://HOST_LAN_IP:8000/`.
 
-- After a cold boot, startup and root can take **up to 90 seconds**. Wait before treating an unavailable dashboard or agent as a failure.
-- To test it: fully power off the TV, unplug it for 30 seconds, turn it on, and open `/status` and `/monitor?scope=summary` without opening Vetro. Check for a new boot, a running service and an authenticated UID-0 agent. Keep boot identifiers private. Standby is not a cold boot.
-- See the [release audit](RELEASE-AUDIT.md) for current results.
+## 3. Install from the root shell
+
+### 3.1 Install the package
+
+In the `samsung-tv-usb-root-kant-m2` folder, append:
+
+```sh
+printf 'curl -fsSL http://HOST_LAN_IP:8000/vetro-chain-signed.wgt -o /tmp/vetro.wgt\n' >> out/cmds.txt
+printf '/usr/bin/pkgcmd -i -t wgt -p /tmp/vetro.wgt --global 2>&1; echo INSTALL_EXIT=$?\n' >> out/cmds.txt
+```
+
+Wait in `out/root_shell.log` for `INSTALL_EXIT=0`. Then confirm the package is registered:
+
+```sh
+printf '/usr/bin/pkgcmd -l | grep -i vetro\n' >> out/cmds.txt
+```
+
+`vetrotvapp` must be in the list. If it is not, stop here: do not install the boot hook on a TV without Vetro.
+
+If `pkgcmd` refuses the package, the TV did not accept the certificate. Re-sign with your own profile (**not** a copy downloaded from someone else) and check that the distributor certificate is the one your Samsung account issued. This fork was developed with a partner-level profile; a public-level distributor certificate has not been tried on these sets, and signing level does not change what the app can do once the daemon is attached, because the privileges come from the root daemon, not from the package.
+
+### 3.2 Start Vetro once
+
+Open **Vetro** on the TV from **Apps**. This is required: the service only switches on its boot-start and auto-restart flags after the app has run once.
+
+Alternatively, from the same root shell:
+
+```sh
+printf 'uid=$(/usr/bin/id -u owner 2>/dev/null); [ -n "$uid" ] || uid=5001; /usr/bin/app_launcher -s vetrotvapp.app -u "$uid"\n' >> out/cmds.txt
+```
+
+Wait about 20 seconds, then open `http://TV_IP:8099/` in a browser on the same network. The dashboard should load. At this point the root agent is still disconnected, because nothing has started the daemon yet.
+
+### 3.3 Install the boot hook
+
+From the same root shell:
+
+```sh
+printf 'curl -fsSL http://HOST_LAN_IP:8000/vetro-boot-install.sh -o /tmp/vetro-boot.sh\n' >> out/cmds.txt
+printf 'cat /tmp/vetro-boot.sh | /bin/sh\n' >> out/cmds.txt
+```
+
+Wait for `VETRO-BOOT-INSTALL-OK`. The installer:
+
+- writes `/opt/vetro-root/{boot.sh, root-daemon.js, env}`;
+- replaces `/opt/etc/parseinfo.sh` with an equivalent **gawk** hook and keeps the signed vendor original as `parseinfo.sh.vetro-orig`;
+- starts the daemon now, through a transient systemd unit, and checks it.
+
+`bash` and `node` on this firmware are UEP-patched and refuse unsigned script files, which is why the hook is gawk and why it runs the shell script through `/bin/sh` on stdin. Do not try to edit the signed vendor script instead.
+
+Then check the connection: `http://TV_IP:8099/status` should report
+
+```json
+{ "mode": "tv-integration", "agent": { "connected": true, "uid": 0 } }
+```
+
+If it does not, see [troubleshooting](#if-the-root-agent-is-not-connected). Do not reboot yet.
+
+### 3.4 Remove the stick and prove the boot hook
+
+1. Remove the USB stick if it is still inserted.
+2. Unplug the TV for 30 seconds and power it on **without** the stick.
+3. Wait up to 90 seconds.
+4. Open `http://TV_IP:8099/status` without opening Vetro first.
+
+If `agent.connected` is `true` with uid 0, root now comes back at every boot without the USB stick. That is the whole point of the add-on.
+
+If it is `false`, the hook did not run. Plug the stick back in, cold-boot with it, and read `/opt/vetro-root/boot.log` and `/opt/vetro-root/daemon.log` from the root shell. A restored or replaced `parseinfo.sh` is the usual cause.
+
+> **The first root always needs the USB.** The hook can only be installed from an existing root shell, and it does not create root by itself. Without the hook, the stick is required at every cold boot.
+
+## 4. First run
+
+- **The launcher is off by default.** Turn it on in the **Launcher** tab if you want it; Vetro starts and stops it from there.
+- Quick settings and the Task manager work from the dashboard. Every switch records what it changed; **Maintenance → Restore the TV** puts it back.
+- Read what a switch does before turning it on. Some of them stop background services that the TV expects.
+
+## Updating
+
+**Do not use the in-dashboard updater on this fork.** Its update source and signing key belong to upstream, so an update replaces the Tizen 4 service files with the stock ones and the fork stops working.
+
+Update by repeating [2.2](#22-build-the-launcher), [2.3](#23-assemble-and-sign-the-package) and [3.1](#31-install-the-package). The package id is unchanged, so this is an in-place update and your settings stay. The boot hook does not need to be reinstalled unless you moved `/opt/vetro-root`.
 
 ## Uninstalling
 
-Vetro changes the TV in several places (it can replace Home, stop services, disable components, block domains), and a plain uninstall leaves some of that behind: the domain filter keeps hiding names from `/etc/hosts` and the saved settings stay in the share folder. So restore first, then remove the app.
+Restore first: a package uninstall leaves the debloating changes and the domain filter behind.
 
-1. **Restore the TV.** Open the dashboard, *Quick settings*, *Maintenance*, **Restore the TV**. Press *Review what will change* to see the list, then *Restore everything*. Nothing changes before you confirm. The report says what it could not put back (packages removed from the Task manager, values written in the TV settings pages).
-2. **Optional: remove Vetro's saved data.** In **Remove Vetro**, *Remove Vetro's saved data*. It is offered only when nothing is left to put back, because those files hold the values used to restore. A package uninstall does not remove them.
-3. **Restart the TV.** This clears temporary changes and reloads Home.
-4. **Remove the app on the TV.** Open *Apps*, go to the settings icon of the Apps screen, select Vetro and choose *Delete*. Menu names vary by model and year.
-5. **Or with Apps2Samsung.** Its desktop and Android apps list the installed apps and can remove them; use it if the TV menu does not offer Delete. Its command-line tool documents no uninstall. This route has been used less than the TV menu.
-6. **Developer Mode.** If you turned it on only for Vetro, switch it off, or set *Host PC IP* back, in the same Apps screen.
-7. **Home Assistant.** If you used the bridge, delete the TV device there; its entities stay until you do.
+1. **Restore the TV.** Dashboard → *Quick settings* → *Maintenance* → **Restore the TV**, then confirm. Read the report: uninstalled apps and values written in the TV's own settings need manual recovery.
+2. **Remove Vetro's saved data.** *Remove Vetro* → *Remove Vetro's saved data*. It is offered only when nothing is left to restore, because those files hold the values used to roll back.
+3. **Remove the boot hook first.** Serve the installer again as in [2.5](#25-serve-both-files-to-the-tv) and run it from a root shell; if the TV has been rebooted since the install, cold-boot it with the USB stick to get that shell. Add `--purge` to delete `/opt/vetro-root` too:
 
-Vetro cannot remove itself: its own package is protected from the Task manager on purpose.
+   ```sh
+   curl -fsSL http://HOST_LAN_IP:8000/vetro-boot-install.sh -o /tmp/vetro-boot.sh
+   cat /tmp/vetro-boot.sh | /bin/sh -s -- --uninstall --purge
+   ```
 
-## If the dashboard says the root agent is not connected
+   This restores the signed vendor `parseinfo.sh` byte-for-byte. If you skip this step, the root daemon keeps starting at every boot with no Vetro service to talk to.
+4. **Remove the app.** From a root shell: `/usr/bin/pkgcmd -u -n vetrotvapp`. Or on the TV: **Apps** → settings icon → **Vetro** → **Delete**. Menu names vary by model.
+5. **Restart the TV.** Without the boot hook, this boot has no root unless the USB stick is inserted.
+6. **Home Assistant.** If you used the MQTT bridge, delete the TV device there; its entities stay until you do.
 
-Open `http://TV_IP:8099/status` in a browser and read these fields:
+## If the root agent is not connected
+
+Open `http://TV_IP:8099/status` and read these fields:
 
 | What you see | What it means | What to do |
 | --- | --- | --- |
-| `"mode": "app-only"` | The package on the TV is the app-only one, with no root integration. | Install the package with the root integration: Apps2Samsung (way 1), or build it with `node build.cjs` in `rooting/` (manual step 3). |
-| A message such as `<operation>: TV platform adapter unavailable`, together with `"mode": "app-only"` in the status output | The package on the TV was built without the integration builder, so it has no TV platform adapter. | Install the package with the root integration: Apps2Samsung (way 1), or build it with `node build.cjs` in `rooting/` (manual step 3; see [rooting/README.md](../../rooting/README.md)). |
-| `"mode": "tv-integration"` and `"agent": {"connected": false}` | The integration is there but the helper has not connected. | Check that Developer Mode is on and **Host PC IP** is `127.0.0.1` ([last steps](#let-the-tv-reach-its-own-sdb-service)), that you restarted the TV afterwards, and that you waited 90 seconds. |
-| The page does not load at all | The background service is not running. | Open **Vetro** on the TV once, wait 10 seconds and reload. If that does not help, see [Check that it starts by itself](#check-that-it-starts-by-itself). |
-| `"attempts"` lists launches that end without `agent-connected` | Root did not work on this firmware, or SDB refused the connection. | Download the report from **Diagnostics** and attach it to a new issue; it contains no addresses or serial numbers. |
+| `"mode": "app-only"` | The installed package has no Tizen 4 integration: it is the upstream or prebuilt build. | Install the package you built in [2.3](#23-assemble-and-sign-the-package). Apps2Samsung cannot install this fork. |
+| `"mode": "tv-integration"`, `"agent": {"connected": false}` | Vetro is running but the root daemon is not. | Install the boot hook ([3.3](#33-install-the-boot-hook)), or start the daemon from a root shell. Check `/opt/vetro-root/daemon.log`. |
+| The page does not load at all | The background service is not running. | Open **Vetro** on the TV once, wait 10 seconds, reload. Confirm `vetrotvapp` with `pkgcmd -l`. |
+| `agent.connected` is true after a cold boot with no USB | The boot hook works. | Nothing to do. |
+| `agent.connected` is false after a cold boot with no USB | The hook did not run, or `parseinfo.sh` was replaced. | Cold-boot with the USB stick and read `/opt/vetro-root/boot.log`; reinstall the hook if needed. |
+| `pkgcmd` returns a certificate or signature error | The TV does not trust the signing profile. | Re-sign with your own author/distributor certificate; do not reuse a downloaded package. |
+| Install succeeds but the dashboard is unreachable | The port changed or another app owns it. | Rebuild with `VETRO_PORT=9000` and try `http://TV_IP:9000/`. |
+| The launcher says it is not in this package | The package was built without the dock files. | Run `dock/build.sh` before `chain/build.cjs`, then reinstall. |
 
-Several sections of the diagnostic report say *unavailable: no root agent connected* until the helper is up. That is expected during those first 90 seconds, and it is the usual picture for a TV where the Host PC IP step was skipped.
+## Safety and rollback
+
+- The USB chain writes nothing to the TV firmware. Removing the stick and rebooting clears the injected stage.
+- The boot hook writes only `/opt/vetro-root/` and replaces `/opt/etc/parseinfo.sh`, keeping the signed original as `parseinfo.sh.vetro-orig`.
+- `sh /tmp/vetro-boot.sh --uninstall` restores the original byte-for-byte.
+- Vetro records every change it makes. **Restore the TV** is the rollback for the debloating switches.
+- Root is root: a bug in the daemon or in a plugin runs with full privileges. Do not expose port 8099 or the root loopback outside your LAN.

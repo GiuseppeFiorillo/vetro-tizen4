@@ -22,6 +22,9 @@ const AUTHOR_PW = process.env.AUTHOR_PW;
 const DISTRIBUTOR_PW = process.env.DIST_PW;
 
 function collectIntegration() {
+    if (process.env.VETRO_PROFILE && process.env.VETRO_PROFILE !== 'default') {
+        throw new Error('VETRO_PROFILE is an app-only profile; root integration must use the default profile');
+    }
     const files = require('../app/build.cjs').collectFiles().filter(file => decodeURIComponent(file.uri) !== 'service/platform.js');
     ['platform.js','adb.js','sdb.js','tar.js','root-agent.js','debloat-commands.js','sdb-tunnel.js','root-preflight.js','root-preflight-capture.js','retry-policy.js'].forEach(name => {
         files.push({uri: encodeURIComponent('service/' + name), data: fs.readFileSync(path.join(__dirname,'service',name))});

@@ -12,7 +12,7 @@ var TABLE_METHOD_RE = /^\.(\w+)\s+method\s+(\S+)\s+(\S+)/;
 var SIGNATURE_COUNT_RE = / \d+/g;
 var SIGNATURE_SPACE_RE = / /g;
 var SET_OK_RE = /^i 0\s*$/;
-var NETWORK_SECTION_RE = /__(LINKS|ADDR|ROUTES|ROUTES6)__\n/;
+var NETWORK_SECTION_RE = /__(LINKS|ADDR|ROUTES|ROUTES6|DETAIL|IFCONFIG)__\n/;
 var LINK_LINE_RE = /^\d+: ([^:@]+)(?:@[^:]+)?:.*?mtu (\d+).*?state (\S+)/;
 var MAC_LINE_RE = /link\/ether ([0-9a-f:]+)/i;
 var ADDRESS_LINE_RE = /^\d+: (\S+)\s+(inet6?) (\S+).*?scope (\S+)/;
@@ -72,7 +72,9 @@ Store.prototype.introspect=function(){var self=this;if(this.probe&&this.probe.co
  function run(command,parse){return self.execute(command,8000).then(function(r){return r.exit_code||r.timed_out?{methods:{},count:0}:parse(r.stdout);},function(){return {methods:{},count:0};});}
  return run(INTROSPECT_XML,parseIntrospectXml).then(function(p){return p.count?p:run(INTROSPECT_TABLE,parseIntrospect);}).then(function(p){if(p.count)self.probe=p;return p;});};
 Store.prototype.read=function(){var self=this;if(this.cached&&Date.now()-this.cached.ts<2000)return Promise.resolve(this.cached);if(this.pending)return this.pending;
- var cmd=ITEMS.map(function(x){return 'echo __'+x.id+'__; '+PREFIX+x.get+' '+x.args;}).join('; ');
+ // One missing method must not blank the whole page: the trailing `true` keeps the command
+ // successful, and each row reports its own error below.
+ var cmd=ITEMS.map(function(x){return 'echo __'+x.id+'__; '+PREFIX+x.get+' '+x.args;}).join('; ')+'; true';
  this.pending=Promise.all([this.execute(cmd,15000),this.introspect()]).then(function(both){var r=both[0],probe=both[1],output=check(r),rows=ITEMS.map(function(x){var state=confirm(x,probe),passive=x.id==='hdr'||x.id==='ecoSensorState',row={id:x.id,label:x.label,group:x.group,writable:!!x.set,coded:!!x.coded,boolean:!!x.boolean,options:x.options||null,hint:x.hint||null,probe:state,access:x.set?(x.gated?'firmware':'verified'):passive?'state':'unverified',readOnlyReason:x.set?null:passive?'State reported by the TV':x.coded?'Options and writes have not been tested':'Write and restore have not been tested',min:x.min,max:x.max,value:null,error:null};
  if(x.set&&(x.gated?state!=='confirmed':state==='signature-mismatch')){row.writable=false;row.readOnlyReason=state==='missing'?'This TV does not offer this control':state==='signature-mismatch'?'This TV exposes the control differently; writes are off':'Control support could not be checked; writes are off';}
  var section=output.split('__'+x.id+'__\n')[1];try{row.value=decode((section||'').split('__')[0].trim());}catch(e){row.error=e.message;row.writable=false;}return row;});self.confirmed={};rows.forEach(function(r){if(r.probe==='confirmed')self.confirmed[r.id]=true;});self.cached={ts:Date.now(),items:rows,api:{status:probe.count?'ok':'unavailable',methods:probe.count},scope:'Values apply to the current source and may change with apps or HDR.'};return self.cached;}).finally(function(){self.pending=null;});return this.pending;
@@ -85,15 +87,83 @@ Store.prototype.write=function(p){var self=this,x=ITEMS.find(function(x){return 
  return get().then(function(before){if(before!==p.expected)throw Error('TV value changed; refresh before saving');return set(p.value).then(get).then(function(after){if(after!==p.value)throw Error('Readback does not match');return {ok:true,verified:true,id:x.id,previous:before,value:after};}).catch(function(e){return set(before).then(get).then(function(restored){e.message+=' · restore '+(restored===before?'confirmed':'not confirmed');throw e;},function(){throw Error(e.message+' · restore not confirmed');});});}).finally(function(){self.cached=null;self.busy=false;});
 };
 function unwrap(v){if(v&&typeof v==='object'&&Object.prototype.hasOwnProperty.call(v,'type')&&Object.prototype.hasOwnProperty.call(v,'data'))return unwrap(v.data);if(Array.isArray(v))return v.map(unwrap);if(v&&typeof v==='object'){var o={};Object.keys(v).forEach(function(k){o[k]=unwrap(v[k]);});return o;}return v;}
+// connmanctl prints values as "Key = Value" or "Key = [ a=1, b=2 ]". A bracketed value is an object when every
+// entry is a pair, an array otherwise (Nameservers, Security); true/false stay booleans as in the D-Bus form.
+function bracketValue(text){
+ var s=String(text==null?'':text).trim(),m=/^\[([\s\S]*)\]$/.exec(s);
+ if(!m)return s==='True'?true:s==='False'?false:s;
+ var inner=m[1].trim();if(!inner)return [];
+ var parts=inner.split(/\s*,\s*/),obj={},pairs=0;
+ parts.forEach(function(p){var i=p.indexOf('=');if(i>0){obj[p.slice(0,i).trim()]=p.slice(i+1).trim();pairs++;}});
+ return pairs===parts.length?obj:parts;
+}
+// The Kant-M2 connmanctl has no --properties and no JSON: "connmanctl services <id>" prints the properties.
+function connmanDetails(text){
+ var map={},cur=null;
+ String(text||'').split('\n').forEach(function(line){
+  var start=/^S\|(\S+)\s*$/.exec(line);
+  if(start){cur={};map[start[1]]=cur;return;}
+  if(!cur)return;
+  var prop=/^\s*([A-Za-z0-9_.]+)\s*=\s*(.*)$/.exec(line);
+  if(prop)cur[prop[1]]=bracketValue(prop[2]);
+ });
+ return map;
+}
+function connmanService(id,p){
+ p=p||{};var eth=p.Ethernet||{};
+ return {name:p.Name||eth.Interface||p.Type||id,type:p.Type,state:p.State,interface:eth.Interface,mac:eth.Address,mtu:eth.MTU==null?null:+eth.MTU,autoConnect:p.AutoConnect,ipv4:p.IPv4||{},ipv4Configured:p['IPv4.Configuration']||{},ipv6:p.IPv6||{},ipv6Configured:p['IPv6.Configuration']||{},nameservers:p.Nameservers||[],nameserversConfigured:p['Nameservers.Configuration']||[],proxy:p.Proxy||{},mdns:p.mDNS,signal:p.Strength==null?null:p.Strength,security:p.Security||[]};
+}
+function connmanServices(listText,details){
+ var out=[];
+ String(listText||'').split('\n').forEach(function(line){
+  line=line.replace(/\s+$/,'');
+  if(!line)return;
+  var m=/^([* ])([A-Za-z]*)\s+(.*?)\s+(\S+)$/.exec(line);
+  if(!m)return;
+  out.push(connmanService(m[4],details[m[4]]));
+ });
+ if(!out.length)Object.keys(details).forEach(function(id){out.push(connmanService(id,details[id]));});
+ return out;
+}
+// netstat -ie replaces `ip -o link/addr`: one block per interface, then inet/inet6/ether lines.
+function netstatInterfaces(text){
+ var out=[],cur=null;
+ String(text||'').split('\n').forEach(function(line){
+  var head=/^(\S+):\s+flags=\S*\s+mtu\s+(\d+)/.exec(line);
+  if(head){cur={name:head[1],state:/<[^>]*\bUP\b[^>]*>/.test(line)?'UP':'DOWN',mtu:+head[2],mac:null,addresses:[]};out.push(cur);return;}
+  if(!cur)return;
+  var v4=/^\s+inet (\S+)\s+netmask/.exec(line);
+  if(v4){cur.addresses.push({family:'IPv4',address:v4[1],scope:'global'});return;}
+  var v6=/^\s+inet6 (\S+)\s+prefixlen/.exec(line);
+  if(v6){cur.addresses.push({family:'IPv6',address:v6[1],scope:/<global>/.test(line)?'global':'link'});return;}
+  var mac=/^\s+ether ([0-9a-f:]+)/i.exec(line);
+  if(mac&&!cur.mac)cur.mac=mac[1];
+ });
+ return out.filter(function(x){return x.name!=='lo';});
+}
+// Parse default routes from both ip-route and netstat output.
+function defaultRoutes(text,v6){
+ return String(text||'').split('\n').map(function(l){return l.trim();}).filter(Boolean).map(function(l){
+  if(DEFAULT_ROUTE_RE.test(l))return {interface:(ROUTE_DEV_RE.exec(l)||[])[1]||null,gateway:(ROUTE_VIA_RE.exec(l)||[])[1]||null};
+  var f=l.split(/\s+/);
+  if(v6?f[0]==='::/0':f[0]==='0.0.0.0')return {interface:f[f.length-1]||null,gateway:f[1]&&f[1]!=='::'?f[1]:null};
+  return null;
+ }).filter(Boolean);
+}
 function networkDecode(output){
  var parts=String(output).split(NETWORK_SECTION_RE),sections={connman:parts[0]};for(var i=1;i<parts.length;i+=2)sections[parts[i]]=parts[i+1];
- var services=[],serviceError=null;try{var raw=JSON.parse(sections.connman.trim());services=unwrap(raw).data;/* outer tuple contains the services array */if(!services)services=unwrap(raw);if(services.length===1&&Array.isArray(services[0])&&Array.isArray(services[0][0]))services=services[0];services=services.map(function(pair){var p=pair[1],eth=p.Ethernet||{};return {name:p.Name||eth.Interface||p.Type,type:p.Type,state:p.State,interface:eth.Interface,mac:eth.Address,mtu:eth.MTU,autoConnect:p.AutoConnect,ipv4:p.IPv4||{},ipv4Configured:p['IPv4.Configuration']||{},ipv6:p.IPv6||{},ipv6Configured:p['IPv6.Configuration']||{},nameservers:p.Nameservers||[],nameserversConfigured:p['Nameservers.Configuration']||[],proxy:p.Proxy||{},mdns:p.mDNS,signal:p.Strength==null?null:p.Strength,security:p.Security||[]};});}catch(e){serviceError='ConnMan configuration unavailable';}
+ var services=[],serviceError=null;
+ try{var raw=JSON.parse(String(sections.connman||'').trim());services=unwrap(raw).data;/* outer tuple contains the services array */if(!services)services=unwrap(raw);if(services.length===1&&Array.isArray(services[0])&&Array.isArray(services[0][0]))services=services[0];services=services.map(function(pair){var p=pair[1],eth=p.Ethernet||{};return {name:p.Name||eth.Interface||p.Type,type:p.Type,state:p.State,interface:eth.Interface,mac:eth.Address,mtu:eth.MTU,autoConnect:p.AutoConnect,ipv4:p.IPv4||{},ipv4Configured:p['IPv4.Configuration']||{},ipv6:p.IPv6||{},ipv6Configured:p['IPv6.Configuration']||{},nameservers:p.Nameservers||[],nameserversConfigured:p['Nameservers.Configuration']||[],proxy:p.Proxy||{},mdns:p.mDNS,signal:p.Strength==null?null:p.Strength,security:p.Security||[]};});}
+ catch(e){var details=connmanDetails(sections.DETAIL);services=connmanServices(sections.connman,details);if(!services.length)serviceError='ConnMan configuration unavailable';}
  var interfaces=[];String(sections.LINKS||'').split('\n').forEach(function(line){var m=LINK_LINE_RE.exec(line);if(!m||m[1]==='lo')return;var mac=MAC_LINE_RE.exec(line);interfaces.push({name:m[1],state:m[3],mtu:+m[2],mac:mac?mac[1]:null,addresses:[]});});
  String(sections.ADDR||'').split('\n').forEach(function(line){var m=ADDRESS_LINE_RE.exec(line);if(!m)return;var item=interfaces.find(function(x){return x.name===m[1]});if(item)item.addresses.push({family:m[2]==='inet'?'IPv4':'IPv6',address:m[3],scope:m[4]});});
- function routes(text){return String(text||'').split('\n').filter(function(l){return DEFAULT_ROUTE_RE.test(l)}).map(function(l){var dev=ROUTE_DEV_RE.exec(l),via=ROUTE_VIA_RE.exec(l);return {interface:dev?dev[1]:null,gateway:via?via[1]:null};});}
- var defaults=routes(sections.ROUTES),defaults6=routes(sections.ROUTES6),active=services.find(function(x){return defaults.some(function(r){return r.interface===x.interface})})||services.find(function(x){return x.state==='online'||x.state==='ready'})||null;
+ if(!interfaces.length)interfaces=netstatInterfaces(sections.IFCONFIG);
+ var defaults=defaultRoutes(sections.ROUTES,false),defaults6=defaultRoutes(sections.ROUTES6,true),active=services.find(function(x){return defaults.some(function(r){return r.interface===x.interface})})||services.find(function(x){return x.state==='online'||x.state==='ready'})||null;
  return {source:'ConnMan + kernel interfaces and routes',services:services,interfaces:interfaces,active:active,defaultRoutes:defaults,defaultRoutes6:defaults6,configurationError:serviceError,writable:false,writeReason:'Network writes and connection recovery have not been tested'};
 }
-Store.prototype.readNetwork=function(){if(this.networkPending)return this.networkPending;var self=this;this.networkPending=this.execute('busctl --system --json=short call net.connman / net.connman.Manager GetServices; echo __LINKS__; ip -o link; echo __ADDR__; ip -o addr; echo __ROUTES__; ip route; echo __ROUTES6__; ip -6 route',10000).then(function(r){return networkDecode(check(r));}).finally(function(){self.networkPending=null;});return this.networkPending;};
+// connmanctl first: the Kant-M2 busctl has no --json option, `ip` is absent, and instead of failing the whole
+// read the shell asks netstat and ends with `true` so one unsupported tool never blanks the page.
+var NETWORK_CMD="connmanctl services; echo __DETAIL__; for id in $(connmanctl services | awk '{print $NF}'); do echo \"S|$id\"; connmanctl services \"$id\"; done; echo __IFCONFIG__; netstat -ie; echo __ROUTES__; netstat -rn; echo __ROUTES6__; netstat -rn -A inet6; true";
+Store.prototype.readNetwork=function(){if(this.networkPending)return this.networkPending;var self=this;this.networkPending=this.execute(NETWORK_CMD,15000).then(function(r){return networkDecode(check(r));}).finally(function(){self.networkPending=null;});return this.networkPending;};
 
 module.exports={Store:Store,ITEMS:ITEMS,decode:decode,parseIntrospect:parseIntrospect,parseIntrospectXml:parseIntrospectXml,networkDecode:networkDecode};

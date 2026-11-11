@@ -16,9 +16,16 @@ function fixture(options) {
     options = options || {};
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'vetro-dock-'));
     const dir = path.join(tmp, 'dock');
+    const bin = path.join(tmp, 'bin');
+    fs.mkdirSync(bin, {recursive: true});
+    const dotnet = path.join(bin, 'dotnet'), corerun = path.join(bin, 'corerun'), clr = path.join(tmp, 'clr');
+    fs.writeFileSync(dotnet, '#!/bin/sh\n');
+    fs.writeFileSync(corerun, '#!/bin/sh\n');
+    fs.mkdirSync(clr, {recursive: true});
     if (options.installed !== false) {
         fs.mkdirSync(path.join(dir, 'res'), {recursive: true});
         fs.writeFileSync(path.join(dir, 'tvlauncher-dotnet.dll'), 'x');
+        fs.writeFileSync(path.join(dir, 'tvlauncher-dotnet-2.0.dll'), 'x');
         fs.writeFileSync(path.join(dir, 'res', 'glass_tile.png'), 'x');
     }
     const tv = {autorun: options.autorun == null ? 1 : options.autorun, running: options.running === true, scripts: [], neverStarts: options.neverStarts === true, csfs: true, clock: 1000000,
@@ -36,8 +43,9 @@ function fixture(options) {
         throw new Error('unexpected command: ' + script);
     };
     const dock = new Dock({execute: execute, dir: dir, stateFile: path.join(tmp, 'state.json'), appsFile: path.join(tmp, 'apps.tsv'),
+        dotnet: options.noDotnet ? path.join(bin, 'missing-dotnet') : dotnet, corerun: corerun, corerunClr: clr,
         sleep: async ms => { tv.clock += ms; }, now: () => tv.clock});
-    return {dock, tv, tmp};
+    return {dock, tv, tmp, dotnet, corerun, clr};
 }
 
 (async function () {
@@ -63,18 +71,28 @@ function fixture(options) {
         'netflix\tNetflix\torg.tizen.netflix-app\t\t/opt/share/webappservice/apps_icon/all/aaa/224x224.png', 'the list the dock reads');
     assert.ok(/tvlauncher-dotnet\.dll --apps '[^']+apps\.tsv' --inputs '[^']+inputs\.tsv' --hidden --home-code 63 --kill-on-home com\.samsung\.tv\.csfs,com\.samsung\.tv\.home\.sidebar,com\.samsung\.tv\.home\.media/.test(f.tv.started),
         'the verified dock command line: ' + f.tv.started);
-    assert.ok(f.tv.started.includes('TVLAUNCHER_DIR=/home/owner') && f.tv.started.includes('WAYLAND_DISPLAY=wayland-0') && f.tv.started.includes('setsid nohup /usr/bin/dotnet'));
+    assert.ok(f.tv.started.includes('TVLAUNCHER_DIR=/home/owner') && f.tv.started.includes('WAYLAND_DISPLAY=wayland-0') && f.tv.started.includes('setsid nohup ' + f.dotnet));
     assert.ok(f.tv.started.indexOf('kill -9') < f.tv.started.indexOf('setsid'), 'a previous dock is stopped before the new one starts');
-    assert.ok(/tr "\\0" " " < \/proc\/\$p\/cmdline/.test(f.tv.started) && f.tv.started.includes('grep -q tvlauncher-dotnet.dll'), 'only a pid that is our dll is killed');
-    assert.ok(/systemd-run --unit=vetro-dock --collect .*-p KillSignal=SIGKILL .*\/usr\/bin\/env HOME=\/home\/owner .*\/usr\/bin\/dotnet tvlauncher-dotnet\.dll/.test(f.tv.started),
+    assert.ok(/tr "\\0" " " < \/proc\/\$p\/cmdline/.test(f.tv.started) && f.tv.started.includes('grep -q tvlauncher-dotnet'), 'only a pid that is our launcher is killed');
+    assert.ok(f.tv.started.includes('systemd-run --unit=vetro-dock --collect') && f.tv.started.includes('-p KillSignal=SIGKILL') &&
+        f.tv.started.includes('/usr/bin/env HOME=/home/owner') && f.tv.started.includes(f.dotnet + ' tvlauncher-dotnet.dll'),
         'the dock runs as its own systemd unit, outside the root agent\'s cgroup (sdbd stops at standby and kills it): ' + f.tv.started);
     assert.ok(f.tv.started.indexOf('systemctl stop vetro-dock.service') < f.tv.started.indexOf('systemd-run'), 'a previous unit is stopped first');
-    assert.ok(/systemd-run [^\n]*\|\| [^\n]*setsid nohup \/usr\/bin\/dotnet/.test(f.tv.started), 'the detached start remains as the fallback');
+    assert.ok(f.tv.started.includes('|| ') && f.tv.started.includes('setsid nohup ' + f.dotnet), 'the detached start remains as the fallback');
     assert.equal(f.tv.csfs, false, 'Samsung Home closed once the dock is up');
     assert.equal(JSON.parse(fs.readFileSync(path.join(f.tmp, 'state.json'), 'utf8')).enabled, true);
     assert.equal(f.tv.scripts[f.tv.scripts.length - 1].startsWith('echo '), true);
     assert.ok(f.tv.scripts.findIndex(c => /^app_launcher -k com\.samsung\.tv\.csfs; app_launcher -k com\.samsung\.tv\.home\.sidebar; app_launcher -k com\.samsung\.tv\.home\.media$/.test(c)) > f.tv.scripts.findIndex(c => c.startsWith('echo') && Buffer.from(c.split(' ')[1], 'base64').toString().includes('setsid')),
         'Samsung Home is closed after the dock started, never before');
+
+    // No /usr/bin/dotnet (the Kant-M2 set): the netcoreapp2.0 build under corerun, not the 3.1 one.
+    f = fixture({noDotnet: true});
+    s = await f.dock.enable();
+    assert.equal(s.installed, true, 'the package carries both builds');
+    assert.equal(s.running, true);
+    assert.ok(f.tv.started.includes('setsid nohup ' + f.corerun + ' -c ' + f.clr + ' tvlauncher-dotnet-2.0.dll --apps'),
+        'the 2.0 build runs under corerun when the TV has no dotnet muxer: ' + f.tv.started);
+    assert.ok(f.tv.started.includes('grep -q tvlauncher-dotnet'), 'the stored pid is matched against either build');
 
     // Still selection is persisted, changes the actual process arguments and rolls back a failed restart.
     assert.equal(f.dock.readState().noMotion, false);

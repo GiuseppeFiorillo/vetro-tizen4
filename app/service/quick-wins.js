@@ -62,19 +62,52 @@ var AMBIENT_OFF = 'if ' + running(AMBIENT_ID) + '; then systemctl stop screend; 
 var TELEMETRY_DIR = '/opt/usr/share/systemd/system/';
 var TELEMETRY_BRAKES = ['canalysis-daemon', 'pisa-service', 'vision-data-recognition-service'].map(function (n) { return TELEMETRY_DIR + n; });
 var TELEMETRY_COND = '/tmp/eltlaunch.cond';
-var TELEMETRY_UNITS = ['canalysis-service', 'pisa-service', 'adagent-service', 'contents-recognition-service',
-    'mirroring-recognition-manager', 'contents-ui-detector-service', 'kpi-logging',
-    'emergency-log-transmitter', 'devicetracker', 'data-service'];
-var TELEMETRY_PROCS = ['canalysis-daemo', 'pisa-service', 'adagent-servic', 'contents-recogn', 'mirroring-recog',
-    'contents-ui-det', 'contents-ott-de', 'kpi-logging', 'emergencyLogTr', 'devicetracker'];
+// Unit names differ between firmware generations: the Q80A (T-NKM2) uses
+// canalysis-service/pisa-service/adagent-service, the Kant-M2 (T-KTM2) uses
+// canalysis.service/org.tizen.pisa-service.service/adagentd.service. Both are
+// tried; systemctl ignores the names that do not exist on this TV.
+var TELEMETRY_UNITS = [
+    'canalysis-service', 'canalysis.service',
+    'pisa-service', 'org.tizen.pisa-service.service',
+    'adagent-service', 'adagentd.service',
+    'contents-recognition-service', 'contents-recognition-service.service',
+    'mirroring-recognition-manager', 'mirroring-recognition-manager.service',
+    'contents-ui-detector-service', 'contents-ui-detector-service.service',
+    'kpi-logging', 'kpi-logging.service',
+    'emergency-log-transmitter', 'emergency-log-transmitter.service',
+    'devicetracker', 'devicetracker.service',
+    'data-service', 'data-service.service',
+    'acr.service'
+];
+// The .path units start their service again when the trigger file changes:
+// acr.path starts acr.service, pisa-service.path starts the PISA service.
+var TELEMETRY_ACTIVATORS = ['org.tizen.pisa-service.path', 'acr.path'];
+// Process names as ps comm shows them (15 characters at most). adagentd and
+// ACRService are the Kant-M2 names; the Q80A names stay for the other models.
+var TELEMETRY_PROCS = ['canalysis-daemo', 'pisa-service', 'adagent-servic', 'adagentd', 'ACRService',
+    'contents-recogn', 'mirroring-recog', 'contents-ui-det', 'contents-ott-de', 'kpi-logging',
+    'emergencyLogTr', 'devicetracker', 'vision-data-rec'];
 var TELEMETRY_HOST = 'lcprd1.samsungcloudsolution.net';
-var TELEMETRY_OFF = 'touch ' + TELEMETRY_BRAKES.join(' ') + ' ' + TELEMETRY_COND + '\n' +
-    'for u in ' + TELEMETRY_UNITS.join(' ') + '; do systemctl stop --no-block $u 2>/dev/null; done\nsleep 1\n' +
+// The brake directory does not exist on the Kant-M2 until Vetro creates it:
+// without it touch fails and the units' ConditionPathExists never matches.
+// A kill before systemd has finished a stop looks like a crash to Restart=always
+// and starts the unit again, so the script waits for every stop job first.
+var TELEMETRY_STOP_ORDER = TELEMETRY_ACTIVATORS.concat(TELEMETRY_UNITS);
+var TELEMETRY_OFF = 'mkdir -p ' + TELEMETRY_DIR + '\n' +
+    'touch ' + TELEMETRY_BRAKES.join(' ') + ' ' + TELEMETRY_COND + '\n' +
+    'for u in ' + TELEMETRY_STOP_ORDER.join(' ') + '; do systemctl stop --no-block $u 2>/dev/null; done\n' +
+    'i=0; while [ $i -lt 20 ]; do busy=0; for u in ' + TELEMETRY_STOP_ORDER.join(' ') +
+    '; do s=$(systemctl is-active $u 2>/dev/null); case "$s" in active|activating|deactivating|reloading) busy=1;; esac; done; [ $busy -eq 0 ] && break; sleep 0.5; i=$((i+1)); done\n' +
     'for n in ' + TELEMETRY_PROCS.join(' ') + '; do for p in $(pgrep -x $n); do kill -9 $p 2>/dev/null; done; done\n' +
-    'sleep 2\ntrue';
+    'for u in ' + TELEMETRY_STOP_ORDER.join(' ') + '; do [ "$(systemctl is-active $u 2>/dev/null)" = failed ] && systemctl reset-failed $u 2>/dev/null; done\n' +
+    'sleep 1\ntrue';
+// data-service is started again by other components, so it is not started here.
+var TELEMETRY_START = TELEMETRY_UNITS.filter(function (u) { return u !== 'data-service' && u !== 'data-service.service'; });
 var TELEMETRY_ON = 'rm -f ' + TELEMETRY_BRAKES.join(' ') + ' ' + TELEMETRY_COND + '\n' +
     'systemctl reset-failed 2>/dev/null\n' +
-    'for u in ' + TELEMETRY_UNITS.slice(0, -1).join(' ') + '; do systemctl start --no-block $u 2>/dev/null; done\nsleep 1\ntrue';
+    'for u in ' + TELEMETRY_START.join(' ') + '; do systemctl start --no-block $u 2>/dev/null; done\n' +
+    'for u in ' + TELEMETRY_ACTIVATORS.join(' ') + '; do systemctl start --no-block $u 2>/dev/null; done\n' +
+    'sleep 1\ntrue';
 // AirPlay (see the header). The web app's package id differs between stores and models; its app id always ends like this.
 var AIRPLAY_UNITS = ['com.samsung.tv.airplay-service', 'com.samsung.tv.airplay-service-2'];
 var AIRPLAY_FLAGS = AIRPLAY_UNITS.map(function (u) { return TELEMETRY_DIR + u; });
@@ -398,5 +431,5 @@ Wins.prototype.bootAmbient = function (mine, id, did) {
     return poll();
 };
 
-module.exports = {Wins: Wins, stop: stop, parse: parse, IDS: IDS, FILE: FILE, AUTOUPDATE: AUTOUPDATE, MULTISCREEN_FLAG: MULTISCREEN_FLAG, AMBIENT_ID: AMBIENT_ID, TELEMETRY_HOST: TELEMETRY_HOST, TELEMETRY_UNITS: TELEMETRY_UNITS, TELEMETRY_BRAKES: TELEMETRY_BRAKES, MULTISCREEN_ID: MULTISCREEN_ID,
-    AIRPLAY_FLAGS: AIRPLAY_FLAGS, AIRPLAY_UNITS: AIRPLAY_UNITS, currentBoot: currentBoot};
+module.exports = {Wins: Wins, stop: stop, parse: parse, IDS: IDS, FILE: FILE, AUTOUPDATE: AUTOUPDATE, MULTISCREEN_FLAG: MULTISCREEN_FLAG, AMBIENT_ID: AMBIENT_ID, TELEMETRY_HOST: TELEMETRY_HOST, TELEMETRY_DIR: TELEMETRY_DIR, TELEMETRY_UNITS: TELEMETRY_UNITS, TELEMETRY_BRAKES: TELEMETRY_BRAKES, MULTISCREEN_ID: MULTISCREEN_ID,
+    AIRPLAY_FLAGS: AIRPLAY_FLAGS, AIRPLAY_UNITS: AIRPLAY_UNITS, TELEMETRY_OFF: TELEMETRY_OFF, TELEMETRY_ON: TELEMETRY_ON, currentBoot: currentBoot};

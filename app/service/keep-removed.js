@@ -53,7 +53,7 @@ function quoted(list) { return list.map(function (p) { return "'" + p + "'"; }).
 
 // One line per listed package that is installed: I|<package>|<removable>|<system>.
 function installedScript(list) {
-    return 'sqlite3 -readonly ' + PKG_DB + ' "SELECT \'I|\'||package||\'|\'||package_removable||\'|\'||package_system FROM package_info WHERE package IN (' + quoted(list) + ');"';
+    return 'sqlite3 ' + PKG_DB + ' "SELECT \'I|\'||package||\'|\'||package_removable||\'|\'||package_system FROM package_info WHERE package IN (' + quoted(list) + ');"';
 }
 
 function parseInstalled(text) {
@@ -65,8 +65,8 @@ function parseInstalled(text) {
 // M|<package>|<store id> per listed package Samsung knows (store apps only), then C|<RESERVED_19>.
 function sourceReadScript(list) {
     var lines = [];
-    if (list.length) lines.push('sqlite3 -readonly ' + WAS_DB + ' "SELECT \'M|\'||pkgname||\'|\'||id FROM widgetinfo WHERE install_type!=\'user\' AND pkgname IN (' + quoted(list) + ');" || exit 1');
-    lines.push('v=$(sqlite3 -readonly ' + WAS_DB + ' "SELECT value FROM WASConfigTable WHERE name=\'' + KEY + '\';") || exit 1', 'echo "C|$v"');
+    if (list.length) lines.push('sqlite3 ' + WAS_DB + ' "SELECT \'M|\'||pkgname||\'|\'||id FROM widgetinfo WHERE install_type!=\'user\' AND pkgname IN (' + quoted(list) + ');" || exit 1');
+    lines.push('v=$(sqlite3 ' + WAS_DB + ' "SELECT value FROM WASConfigTable WHERE name=\'' + KEY + '\';") || exit 1', 'echo "C|$v"');
     return lines.join('\n');
 }
 
@@ -97,7 +97,7 @@ function sourceWriteScript(ids) {
         '[ -f ' + WAS_BACKUP + ' ] || cp -p ' + WAS_DB + ' ' + WAS_BACKUP,
         'sqlite3 ' + WAS_DB + ' "INSERT OR REPLACE INTO WASConfigTable(name,value) VALUES(\'' + KEY + '\',\'' + v + '\');"',
         'chown ' + OWNER_UID + ':users ' + WAS_DB + ' ' + WAS_DB + '-journal 2>/dev/null || true',
-        'echo "C|$(sqlite3 -readonly ' + WAS_DB + ' "SELECT value FROM WASConfigTable WHERE name=\'' + KEY + '\';")"'
+        'echo "C|$(sqlite3 ' + WAS_DB + ' "SELECT value FROM WASConfigTable WHERE name=\'' + KEY + '\';")"'
     ].join('\n');
 }
 

@@ -98,7 +98,8 @@ async function stage(opts) {
     // Switching the plugin off restores the row exactly.
     s.plugin.stop();
     await until(() => s.row() === ORIGINAL + ' --samsung-update', 4000, 'row restored on stop');
-    assert.equal((await s.status()).proxy, 'down');
+    // Row restoration precedes the asynchronous proxy close; wait for both.
+    await until(async () => (await s.status()).proxy === 'down', 4000, 'proxy closed after row restore');
   }
 
   // B. A row left patched by a crash is healed when the button is off.
@@ -205,7 +206,8 @@ async function stage(opts) {
     s.gate.ms = 0;
     await sleep(3500);
     assert.equal(s.row(), ORIGINAL, 'the row ends original, not patched: ' + s.row());
-    assert.equal((await s.status()).proxy, 'down');
+    // Row restoration precedes the asynchronous proxy close; wait for both.
+    await until(async () => (await s.status()).proxy === 'down', 4000, 'proxy closed after row restore');
   }
 
   // I. Samsung adds a flag after ours, or the value takes a form we will not edit while our flags are in it.

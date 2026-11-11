@@ -2,6 +2,8 @@
 // Runtime/capability checks adapted from chris-ritsen/samsung-tv-root v0.0.12
 // (Unlicense); see THIRD_PARTY_NOTICES.md. Commands run through TV-local SDB.
 var fs = require('fs');
+// fs.constants was introduced after the Node 4 service runtime.
+var READABLE = fs.constants ? fs.constants.R_OK : fs.R_OK;
 function failure(code) { var e = new Error(code); e.code = code; return e; }
 function selectRuntime(versions) {
     if (versions.some(function (v) { return v[0] >= 6; })) return '6.0';
@@ -24,8 +26,8 @@ function detectRuntime(result, files) {
     try {
         var version = /^(\d+)\.(\d+)\.\d+$/.exec(require('path').basename(files.realpathSync(active)));
         if (!version) throw failure('runtime-probe-failed');
-        files.accessSync(active + '/libcoreclr.so', fs.constants.R_OK);
-        files.accessSync(active + '/System.Private.CoreLib.dll', fs.constants.R_OK);
+        files.accessSync(active + '/libcoreclr.so', READABLE);
+        files.accessSync(active + '/System.Private.CoreLib.dll', READABLE);
         return selectRuntime([[Number(version[1]), Number(version[2])]]);
     } catch (error) {
         if (error.code === 'runtime-unsupported') throw error;

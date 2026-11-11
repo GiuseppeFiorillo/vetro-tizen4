@@ -46,7 +46,12 @@ __pycache__/
 /dock/**/bin/
 /dock/**/obj/
 
-# Design tooling and local firmware dumps
-.impeccable/
-/PRODUCT.md
-/dump/
+# Root integration runtime and generated installers
+/kant-m2-root/state/
+/kant-m2-root/out/
+*.runtimeconfig.dev.json
+# Local diagnostic material and tooling
+/.impeccable/
+/private/
+.env*
+!**/.env.example

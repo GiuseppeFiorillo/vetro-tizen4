@@ -9,7 +9,7 @@ function tv(start){
   const set=/vconftool set -f -t int \S+ (-?\d+)/.exec(sh);if(set){if(s.failSet)return {exit_code:1,stderr:'denied',stdout:''};if(s.keep||Number(set[1])===1)s.autoupdate=Number(set[1]);return {exit_code:0,stdout:''};}
   if(sh.includes('touch '+qw.MULTISCREEN_FLAG)){s.ms=true;if(/app_launcher -t com.samsung.tv.multiscreen/.test(sh))s.msRun=false;}
   if(sh.includes('rm -f '+qw.MULTISCREEN_FLAG))s.ms=false;
-  if(/^touch \/opt\/usr\/share\/systemd\/system\/canalysis-daemon/.test(sh)){s.telBrakes=3;s.telRun=s.telStays;s.telOffRuns=(s.telOffRuns||0)+1;}
+  if(sh.includes('touch /opt/usr/share/systemd/system/canalysis-daemon')){s.telBrakes=3;s.telRun=s.telStays;s.telOffRuns=(s.telOffRuns||0)+1;}
   if(/^rm -f \/opt\/usr\/share\/systemd\/system\/canalysis-daemon/.test(sh)){s.telBrakes=0;s.telRun=8;}
   if(/^set -e\ntouch \/opt\/usr\/share\/systemd\/system\/com.samsung.tv.airplay-service /.test(sh)){s.apFlag=true;if(!s.apStays){s.apSvc=false;s.apWeb=false;}s.apOffRuns=(s.apOffRuns||0)+1;}
   if(/^rm -f \/opt\/usr\/share\/systemd\/system\/com.samsung.tv.airplay-service /.test(sh)){s.apFlag=false;s.apSvc=true;}
@@ -81,15 +81,24 @@ const noWait=()=>Promise.resolve();
  let dns=fakeDns({enabled:true,applied:true});t=tv();io=store();w=new qw.Wins(t.execute,{fs:io,sleep:noWait,bootId:()=>'boot-t1',dns});
  r=await w.apply('telemetry',true);assert.equal(r.status,'on');assert.equal(r.dns,'blocked');assert.equal(t.s.telRun,0);assert.equal(t.s.telBrakes,3);
  assert.deepEqual(dns.domains,['ads.example.com',qw.TELEMETRY_HOST]);assert.equal(JSON.parse(io.data).telemetry,true);assert.equal(JSON.parse(io.data).telemetryDns,true);
- const off=t.s.calls.find(c=>/^touch /.test(c));
+ const off=t.s.calls.find(c=>c.includes('touch /opt/usr/share/systemd/system/canalysis-daemon'));
  assert.ok(off.includes('/opt/usr/share/systemd/system/canalysis-daemon')&&off.includes('/opt/usr/share/systemd/system/pisa-service'),'the units\' own brake files');
+ assert.ok(off.startsWith('mkdir -p '+qw.TELEMETRY_DIR),'the brake directory is created before touch');
+ assert.ok(/canalysis\.service/.test(off)&&/org\.tizen\.pisa-service\.service/.test(off)&&/adagentd\.service/.test(off),'Kant-M2 unit names are stopped too');
+ assert.ok(/acr\.service/.test(off)&&/acr\.path/.test(off),'the ACR viewing-data units are stopped');
+ assert.ok(/case "\$s" in active\|activating\|deactivating\|reloading\)/.test(off)&&/sleep 0\.5/.test(off),'the script waits for the stop jobs before killing');
+ assert.ok(/reset-failed/.test(off),'a failed stop state is cleared');
+ assert.ok(/for n in [^;]*adagentd[^;]*ACRService/.test(off),'Kant-M2 process names are killed as a fallback');
  assert.ok(/for u in [^;]*contents-recognition-service[^;]*kpi-logging[^;]*; do systemctl stop/.test(off),'viewing-data and logging services are stopped');
  assert.ok(/contents-ui-detector-service/.test(off)&&/contents-ui-det /.test(off)&&/contents-ott-de /.test(off),'the picture detectors are stopped, including the one a recogniser starts without a unit');
  assert.ok(!/systemctl (mask|disable)|rm -rf|\/usr\/lib/.test(off),'nothing on the system image, nothing masked');
  assert.equal((await w.read()).wins.telemetry.dnsBlocked,true);
  t.s.telRun=2;assert.equal((await w.read()).wins.telemetry.status,'partial','chosen but running again');
  t.s.telRun=0;r=await w.apply('telemetry',false);assert.equal(r.dns,'removed');assert.deepEqual(dns.domains,['ads.example.com']);assert.equal(t.s.telBrakes,0,'brake files removed');assert.equal(JSON.parse(io.data).telemetry,false);
- assert.ok(t.s.calls.some(c=>/^rm -f /.test(c)&&/for u in [^;]*pisa-service[^;]*; do systemctl start/.test(c)&&!/systemctl start data-service/.test(c)),'undo starts the services again, data-service comes back by itself');
+ const on=t.s.calls.find(c=>/^rm -f /.test(c));
+ assert.ok(on&&/for u in [^;]*pisa-service[^;]*; do systemctl start/.test(on)&&!/systemctl start data-service/.test(on),'undo starts the services again, data-service comes back by itself');
+ assert.ok(/canalysis\.service/.test(on)&&/org\.tizen\.pisa-service\.service/.test(on)&&/adagentd\.service/.test(on),'undo starts the Kant-M2 units too');
+ assert.ok(/for u in org\.tizen\.pisa-service\.path acr\.path; do systemctl start/.test(on),'undo starts the path activators again');
  // A host the user saved on their own is left alone, a filter that is switched off only gets the entry saved
  dns=fakeDns({domains:[qw.TELEMETRY_HOST]});t=tv();io=store();w=new qw.Wins(t.execute,{fs:io,sleep:noWait,dns});
  r=await w.apply('telemetry',true);assert.equal(r.dns,'saved');assert.equal(dns.calls.length,0,'already saved: no write');

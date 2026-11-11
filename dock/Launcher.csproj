@@ -1,11 +1,19 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
+    <!-- Default build for TVs that ship /usr/bin/dotnet (netcoreapp3.1). The Kant-M2
+         chain build passes VetroLauncherTfm=netcoreapp2.0 for the TV's corerun. -->
+    <VetroLauncherTfm Condition="'$(VetroLauncherTfm)' == ''">netcoreapp3.1</VetroLauncherTfm>
     <OutputType>Exe</OutputType>
-    <TargetFramework>netcoreapp3.1</TargetFramework>
-    <AssemblyName>tvlauncher-dotnet</AssemblyName>
+    <TargetFramework>$(VetroLauncherTfm)</TargetFramework>
+    <!-- Different assembly identities: both builds ship in native/dock, and coreclr binds an
+         assembly by identity, not by the path corerun was given. With the same name the 2.0
+         file would resolve to the 3.1 assembly sitting next to it. -->
+    <AssemblyName Condition="'$(VetroLauncherTfm)' == 'netcoreapp2.0'">tvlauncher-dotnet-2.0</AssemblyName>
+    <AssemblyName Condition="'$(VetroLauncherTfm)' != 'netcoreapp2.0'">tvlauncher-dotnet</AssemblyName>
     <RootNamespace>Launcher</RootNamespace>
     <Nullable>disable</Nullable>
     <ImplicitUsings>disable</ImplicitUsings>
+    <LangVersion Condition="'$(VetroLauncherTfm)' == 'netcoreapp2.0'">latest</LangVersion>
     <InvariantGlobalization>true</InvariantGlobalization>
     <!-- Runtime knobs for a small, quiet process: no background GC thread, workstation GC. -->
     <ConcurrentGarbageCollection>false</ConcurrentGarbageCollection>

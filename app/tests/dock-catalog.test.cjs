@@ -57,6 +57,15 @@ assert.equal(reserved.entries[0].slug, 'settings-2', 'an app called Settings doe
 const badId = catalog.build({order: ['d/webapp@s'], registry: {s: {title: 'X', appId: 'bad id;rm', hidden: false}}, icons: {}, packageIcons: {}});
 assert.equal(badId.entries.length, 0, 'an app id that is not plain is never written to the file');
 
+// Universal Guide is a background service on the Kant-M2 set, not an app tile.
+const ug = catalog.build(catalog.parse(['F|csfs', 'O|d/webapp@ug', 'R|' + hex('ug') + '|' + hex('Universal Guide') + '|' + hex('com.samsung.tv.UniversalBrowse') + '|0'].join('\n')));
+assert.equal(ug.entries.length, 0, 'Universal Guide is left out');
+assert.ok(ug.skipped.some(s => s.item === 'd/webapp@ug' && /Left out/.test(s.reason)));
+
+// Older firmware keeps the prepared Home icons in FirstScreen/Panel, not in all/.
+assert.equal(catalog.parse('I|aaa|/opt/share/webappservice/apps_icon/FirstScreen/aaa/250x250.png').icons.aaa, '/opt/share/webappservice/apps_icon/FirstScreen/aaa/250x250.png');
+assert.equal(catalog.parse('I|bbb|/opt/share/webappservice/apps_icon/Panel/bbb/167x94.png').icons.bbb, '/opt/share/webappservice/apps_icon/Panel/bbb/167x94.png');
+
 // The dock holds 40 entries including the three system ones
 const many = {order: [], registry: {}, icons: {}, packageIcons: {}};
 for (let i = 0; i < 60; i++) { many.order.push('d/webapp@a' + i); many.registry['a' + i] = {title: 'App ' + i, appId: 'x.app' + i, hidden: false}; }
@@ -98,7 +107,8 @@ assert.ok(noYt.skipped.some(x => /No YouTube icon/.test(x.reason)));
     assert.equal(ok.count, 5);
     assert.ok(/appLayerCache/.test(seen[0]) && seen.length === 2, 'two read-only calls');
     assert.ok(seen.every(sc => !/\b(rm|mv|cp|tee|chmod|kill)\b|>\s*\/(?!dev\/null)/.test(sc)), 'neither script writes anything');
-    assert.ok(seen[0].includes('.webappservice.db') && seen[0].includes('-readonly'), 'reads only');
+    assert.ok(seen[0].includes('.webappservice.db') && /"SELECT\b/.test(seen[0]), 'reads only');
+    assert.ok(!/-readonly|\b(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE)\b/i.test(seen[0]), 'the TV sqlite3 has no -readonly; the statements are plain SELECTs');
     assert.ok(!ok.tsv.includes(missing), 'an icon file that is gone is not listed');
     const alt = '/opt/usr/apps/com.samsung.tv.tvPlusDeeplinker/shared/res/TVPlus_app_icon.png';
     assert.ok(ok.tsv.includes('tvplus\tSamsung TV Plus\torg.tizen.tv-viewer\t\t' + alt + '\n'), 'TV Plus: the stale package icon gives way to the deep-link package icon');

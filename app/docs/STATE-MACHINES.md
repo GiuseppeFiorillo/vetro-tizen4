@@ -194,6 +194,7 @@ Two ways the user can press Home, and two guards against Samsung's own Home:
 | Home from evdev (the user app owns Home) | same function; a press that follows an evas one within 1.5 s is debounced, so the guard is armed once |
 | Guard | one process per Home press that kills Samsung Home at 0.15, 0.3, 0.45, 0.7, 1.2 s; every kill first checks the generation stored in `tvlauncher.guard` |
 | User launches Samsung Home (or another guarded target) from the dock | `CancelGuard()` bumps the generation (`LaunchApp`, `Activate`, `HomeGuard.ShouldCancel`), so the remaining kills of the chain do nothing; covers several app ids and the CoBA fallback |
+| Samsung Home pill | starts Home with `app_launcher -s … -u <TZ_SYS_DEFAULT_USER uid>` and repeats that start twice at 2.5 s. A cold start only reaches `STATUS_BG` on this firmware: the compositor maps the window, hides it, and `amd` SIGKILLs the process a few seconds later, so nothing appears. The repeats give it `STATUS_FOCUS` (verified from the root shell; the pill path still failed on 2026-11-10 and is under investigation). The dock runs as root, so omitting `-u` addresses uid 0 and Home (owner, 5001) never appears. `-f` is not used for Home: the deprecated fast start also lands in the background. The next Home press opens the dock again, so the visit is temporary |
 
 - **B14** After a Home press armed the kill chain, launching Samsung's own Home from the dock was still killed by the remaining steps. In 0.5.0 this is already covered, by a generation counter in `tvlauncher.guard` instead of the cancel file the 0.4.0 tree used (real-shell test "multi-app Home guard…" in `dock/tests/Program.cs`). Nothing was ported.
 - **B15** A Home key that reached the dock through evas (not evdev) never armed the guard, so Samsung Home came up over the dock. Fixed: `OnKey` XF86Home arms it.
@@ -202,7 +203,7 @@ Two ways the user can press Home, and two guards against Samsung's own Home:
 - **B18** The log file grew without bound while the process stayed resident. Fixed: `LogLock` and a 256 KiB trim.
 - **B19** `WatchNewNodes` appended to the evdev slot lists on every rescan and logged the same failing node on every pass. Fixed: reuse freed slots, log a failing node once, close the fd when registration fails.
 
-Tests: `dock/tests/Program.cs` (the guard, the controller, "hot paths allocate nothing"): 5130 checks. B15 to B19 are in `Program.cs` (EFL calls, no unit test) and were reviewed by reading; `Program.cs` (EFL calls) is not unit-testable and was reviewed by reading.
+Tests: `dock/tests/Program.cs` (the guard, the controller, "hot paths allocate nothing"): 5131 checks. B15 to B19 are in `Program.cs` (EFL calls, no unit test) and were reviewed by reading; `Program.cs` (EFL calls) is not unit-testable and was reviewed by reading.
 
 **Open (Plausible):** a dock instance that is alive but hung (no frames, still holding the fifo) is not replaced: the supervisor sees "running" and the new launch is skipped. It needs a heartbeat from the dock to the service. Not changed here because it adds a cross-process protocol on a path that cannot be tested without the TV.
 

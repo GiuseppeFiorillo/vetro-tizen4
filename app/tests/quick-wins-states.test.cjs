@@ -58,7 +58,7 @@ function store(options) {
     const offRuns = [];
     const w = new qw.Wins(async cmd => {
       const sh = b64(cmd);
-      if (/^touch \/opt\/usr\/share\/systemd\/system\/canalysis-daemon/.test(sh)) offRuns.push(sh);
+      if (sh.includes('touch /opt/usr/share/systemd/system/canalysis-daemon')) offRuns.push(sh);
       return {exit_code: 0, stdout: ''};
     }, {fs: io, sleep: async () => { io.data = JSON.stringify(Object.assign(JSON.parse(io.data), {telemetry: false})); }, bootId: () => 'boot-1', skipAmbient: true});
     io.data = JSON.stringify({telemetry: true});

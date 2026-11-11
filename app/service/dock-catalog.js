@@ -25,6 +25,10 @@ var ORDER_DIR = '/opt/usr/home/owner/apps_rw/com.samsung.tv.csfs/data';
 // then completes the list, so the dock still shows every visible app (PR #43 by arnaudaprahamian).
 var ORDER_DIR_NEW_HOME = '/opt/usr/home/owner/apps_rw/com.samsung.tv.home.media/data';
 var ICON_ROOT = '/opt/share/webappservice/apps_icon/all/';
+// Older firmware keeps the Home icons here instead: same widget id, prepared sizes (the square
+// 250x250 is preferred). The "all" folder wins where the firmware also fills it.
+var ICON_SCREENS = '/opt/share/webappservice/apps_icon/FirstScreen/';
+var ICON_PANEL = '/opt/share/webappservice/apps_icon/Panel/';
 var MAX_ENTRIES = 40;          // the dock refuses more
 var APP_ID = /^[A-Za-z0-9_.-]{1,120}$/;
 var ICON_FILE = /^(?:\/opt\/share\/webappservice\/apps_icon|\/opt\/usr\/apps|\/usr\/apps)\/[A-Za-z0-9_.\/-]{1,160}\.png$/;
@@ -34,6 +38,9 @@ var VIEWER = 'org.tizen.tv-viewer';
 // Samsung's registry holds for YouTube.
 var TIZENTUBE = /TizenTube/i;
 var COBALT_YOUTUBE = 'com.samsung.tv.cobalt-yt';
+// Samsung's Home lists a few entries that are not apps of their own on every firmware. Universal
+// Guide is a background service on the Kant-M2 set: its tile only closes the dock, so it is left out.
+var HIDDEN_APPS = {'com.samsung.tv.UniversalBrowse': true};
 // The dock repeats this check, but the file is written here, so refuse a bad path here as well.
 function iconOk(p) { return ICON_FILE.test(p) && p.indexOf('..') < 0 && p.indexOf('//') < 0; }
 
@@ -66,10 +73,13 @@ function script() {
         '{ cat "$B/.appLayerCache.1" 2>/dev/null || cat "$B/.appLayerCache.2" 2>/dev/null; } | sed "s/^/O|/"',
         'for B in ' + [ORDER_DIR, ORDER_DIR_NEW_HOME].join(' ') + '; do',
         '  if [ -f "$B/.sourceCache" ]; then printf "S|"; base64 "$B/.sourceCache" | tr -d "\\n"; printf "\\n"; break; fi; done',
-        'sqlite3 -readonly /opt/dbspace/.webappservice.db "SELECT \'R|\'||hex(id)||\'|\'||hex(title)||\'|\'||hex(tizen_id)||\'|\'||is_hidden FROM widgetinfo;" 2>/dev/null',
+        // The TV's sqlite3 has no -readonly option; these are SELECT statements and do not write.
+        'sqlite3 /opt/dbspace/.webappservice.db "SELECT \'R|\'||hex(id)||\'|\'||hex(title)||\'|\'||hex(tizen_id)||\'|\'||is_hidden FROM widgetinfo;" 2>/dev/null',
+        'for s in 167x94 245x138 250x250; do for d in ' + ICON_SCREENS + '*/ ' + ICON_PANEL + '*/; do',
+        '  id=$(basename "$d"); if [ -f "$d$s.png" ]; then echo "I|$id|$d$s.png"; fi; done; done',
         'for d in ' + ICON_ROOT + '*/; do id=$(basename "$d"); for s in ' + sizes + '; do',
         '  if [ -f "$d$s.png" ]; then echo "I|$id|$d$s.png"; break; fi; done; done',
-        'sqlite3 -readonly /opt/dbspace/.pkgmgr_parser.db "SELECT \'P|\'||hex(a.app_id)||\'|\'||hex(l.app_icon) FROM package_app_info a JOIN package_app_localized_info l ON l.app_id=a.app_id WHERE l.app_icon != \'\';" 2>/dev/null',
+        'sqlite3 /opt/dbspace/.pkgmgr_parser.db "SELECT \'P|\'||hex(a.app_id)||\'|\'||hex(l.app_icon) FROM package_app_info a JOIN package_app_localized_info l ON l.app_id=a.app_id WHERE l.app_icon != \'\';" 2>/dev/null',
         '[ -d /usr/apps/' + COBA_HOME + ' ] || [ -d /opt/usr/apps/' + COBA_HOME + ' ] && echo "H|' + COBA_HOME + '"',
         'true'
     ].join('\n');
@@ -183,6 +193,7 @@ function build(parsed, options) {
         var reg = parsed.registry[ident];
         if (!reg) { skipped.push({item: item, reason: 'Not installed'}); return; }
         if (reg.hidden) { skipped.push({item: item, reason: 'Hidden in the registry'}); return; }
+        if (HIDDEN_APPS[reg.appId]) { skipped.push({item: item, reason: 'Left out of the dock'}); return; }
         if (!APP_ID.test(reg.appId)) { skipped.push({item: item, reason: 'Unusable app id'}); return; }
         var entry = add(slugify(reg.title), cleanLabel(reg.title, reg.appId), reg.appId, parsed.icons[ident] || parsed.packageIcons[reg.appId]);
         if (options.fixTizenTube && TIZENTUBE.test(reg.appId)) {

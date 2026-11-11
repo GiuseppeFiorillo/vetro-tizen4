@@ -59,7 +59,7 @@ var HOME_SCRIPT = homeOrder.PICK_DIR + 'n=0; same=0\nfor f in ' + homeOrder.FILE
 
 var FLAGS_SCRIPT = 'for f in ' + BACKUPS + '/*; do\n [ -f "$f" ] || continue\n id=${f##*/}\n case "$id" in *[!A-Za-z0-9_.-]*) continue;; esac\n' +
     ' b=$(cat "$f" 2>/dev/null)\n' +
-    ' c=$(printf \'.timeout 5000\\n%s\\n\' "SELECT app_onboot,app_autorestart FROM package_app_info WHERE app_id=\'$id\';" | sqlite3 -readonly ' + DB + ' 2>/dev/null)\n' +
+    ' c=$(printf \'.timeout 5000\\n%s\\n\' "SELECT app_onboot,app_autorestart FROM package_app_info WHERE app_id=\'$id\';" | sqlite3 ' + DB + ' 2>/dev/null)\n' +
     ' echo "SF|$id|$b|$c"\ndone\ntrue';
 
 function parseHome(text) {

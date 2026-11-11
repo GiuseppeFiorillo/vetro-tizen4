@@ -143,7 +143,7 @@ function prepare(agentPort, runtime) {
     // and 5.5 run Node 4.4, where the adapter must not touch the file system or
     // keep retrying: report it once and leave the rest of the service running.
     if (typeof crypto.generateKeyPairSync !== 'function') {
-        var unsupported = new Error('root agent needs Node 10.12+ (this runtime has ' + process.version + ')');
+        var unsupported = new Error('root payload preparation needs crypto.generateKeyPairSync (Node 10.12+); web service runtime is ' + process.version);
         unsupported.code = 'platformUnsupported';
         throw unsupported;
     }

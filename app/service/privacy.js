@@ -46,7 +46,7 @@ Privacy.prototype.read = function () {
         'echo __PSID__; vconftool get db/adagent/psid 2>&1',
         'echo __TCF__; vconftool get db/TCF/TVPlus/TCFEnabled 2>&1',
         'echo __HBBTVAPP__; ps -eo comm 2>/dev/null | grep -c hbbtv_app',
-        'echo __AGREE__; sqlite3 -readonly ' + HDC + ' "SELECT id||\':\'||isAgreed FROM table_home_data_disclaimer_info" 2>/dev/null; rc=$?; echo __AGREE_STATUS__; echo $rc'
+        'echo __AGREE__; sqlite3 ' + HDC + ' "SELECT id||\':\'||isAgreed FROM table_home_data_disclaimer_info" 2>/dev/null; rc=$?; echo __AGREE_STATUS__; echo $rc'
     ].join('; ');
     return this.execute(wrap(script), 12000).then(function (r) {
         var s = sections(check(r));

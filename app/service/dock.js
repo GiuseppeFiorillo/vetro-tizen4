@@ -41,7 +41,17 @@ var RUN_DIR = '/home/owner';                          // the dock's own pid, fif
 var PID_FILE = RUN_DIR + '/tvlauncher.pid';
 var FIFO = RUN_DIR + '/tvlauncher.fifo';
 var LOG_FILE = RUN_DIR + '/tvlauncher.log';
-var DLL = 'tvlauncher-dotnet.dll';
+// Two builds of the same launcher, picked by what the TV can run:
+//   - netcoreapp3.1 under /usr/bin/dotnet (firmwares that ship the muxer);
+//   - netcoreapp2.0 under the corerun of the runtime directory (the Kant-M2 set has no muxer,
+//     only /usr/share/dotnet/corerun and Microsoft.NETCore.App/2.0.0).
+// The pid file is shared, and the process match below accepts either assembly name.
+var DLL_31 = 'tvlauncher-dotnet.dll';
+var DLL_20 = 'tvlauncher-dotnet-2.0.dll';
+var DLL_MATCH = 'tvlauncher-dotnet';
+var DOTNET = '/usr/bin/dotnet';
+var CORERUN = '/usr/share/dotnet/corerun';
+var CORERUN_CLR = '/usr/share/dotnet/shared/Microsoft.NETCore.App/2.0.0';
 var UNIT = 'vetro-dock';                              // the dock's own systemd unit
 var HOME_APP = 'com.samsung.tv.csfs';
 // 2025 (RSM/CoBA) firmware runs the sidebar and media rows as separate processes that stay on top of the dock
@@ -63,6 +73,7 @@ var APP_GONE_ROUNDS = 2;                               // and given up on when t
 
 function wrap(s) { return 'echo ' + Buffer.from(s).toString('base64') + ' | base64 -d | sh'; }
 function q(s) { return "'" + String(s).replace(QUOTE_RE, "'\\''") + "'"; }
+function exists(file) { try { return fs.existsSync(file); } catch (e) { return false; } }
 
 var SOURCE_OPTION_KEYS = ['showHomeSources', 'useSourceImages'];
 function legacySourceUsage(file, images) {
@@ -92,6 +103,10 @@ function Dock(options) {
     this.inputsFile = options.inputsFile || path.join(path.dirname(this.appsFile), 'vetro-dock-inputs.tsv');
     this.legacyHomeSources = legacySourceUsage(this.appsFile, false);
     this.legacySourceImages = legacySourceUsage(this.inputsFile, true);
+    // Overridable so the tests can use temporary executables instead of the TV's paths.
+    this.dotnet = options.dotnet || DOTNET;
+    this.corerun = options.corerun || CORERUN;
+    this.corerunClr = options.corerunClr || CORERUN_CLR;
     this.sleep = options.sleep || function (ms) { return new Promise(function (r) { setTimeout(r, ms); }); };
     this.now = options.now || Date.now;
     this.uptime = options.uptime || function () { return os.uptime(); };
@@ -104,8 +119,18 @@ function Dock(options) {
 }
 
 Dock.prototype.installed = function () {
-    try { return fs.existsSync(path.join(this.dir, DLL)) && fs.existsSync(path.join(this.dir, 'res', 'glass_tile.png')); }
-    catch (e) { return false; }
+    try {
+        var dll = exists(path.join(this.dir, DLL_31)) || exists(path.join(this.dir, DLL_20));
+        return dll && exists(path.join(this.dir, 'res', 'glass_tile.png'));
+    } catch (e) { return false; }
+};
+
+// The launcher command line up to the arguments. /usr/bin/dotnet wins when the firmware has it;
+// otherwise the netcoreapp2.0 build runs under the corerun the older Tizen runtime ships.
+Dock.prototype.launcherCommand = function () {
+    if (exists(this.dotnet) && exists(path.join(this.dir, DLL_31))) return this.dotnet + ' ' + DLL_31;
+    if (exists(this.corerun) && exists(path.join(this.dir, DLL_20))) return this.corerun + ' -c ' + this.corerunClr + ' ' + DLL_20;
+    return null;
 };
 
 Dock.prototype.readState = function () {
@@ -186,7 +211,7 @@ function check(r, what) {
 Dock.prototype.probe = function () {
     var script = [
         'p=$(cat ' + PID_FILE + ' 2>/dev/null)',
-        'if [ -n "$p" ] && tr "\\0" " " < /proc/$p/cmdline 2>/dev/null | grep -q ' + DLL + '; then echo "dock=$p"; else echo "dock="; fi',
+        'if [ -n "$p" ] && tr "\\0" " " < /proc/$p/cmdline 2>/dev/null | grep -q ' + DLL_MATCH + '; then echo "dock=$p"; else echo "dock="; fi',
         'if pidof ' + HOME_APP + ' >/dev/null 2>&1 || ps | grep -q "[c]sfs"; then echo "home=1"; else echo "home=0"; fi',
         // No log file yet is normal. Without || true the missing file failed the whole read, and the user saw its raw
         // output, "dock= home=0 log:", as the error (#82).
@@ -239,8 +264,10 @@ Dock.prototype.statusNow = function () {
 Dock.prototype.startScript = function () {
     var env = 'HOME=/home/owner XDG_RUNTIME_DIR=/run WAYLAND_DISPLAY=wayland-0 TVLAUNCHER_ENGINE=egl TVLAUNCHER_DIR=' + RUN_DIR;
     var state = this.readState();
+    var command = this.launcherCommand();
+    if (!command) throw new Error('This TV has neither ' + DOTNET + ' with ' + DLL_31 + ' nor ' + CORERUN + ' with ' + DLL_20 + '.');
     // Custom mode: headless. The one-line list only gives the process something to load; the window is never shown.
-    var args = DLL + ' --apps ' + q(state.customApp ? this.customAppsFile : this.appsFile) + ' --inputs ' + q(this.inputListPath()) +
+    var args = ' --apps ' + q(state.customApp ? this.customAppsFile : this.appsFile) + ' --inputs ' + q(this.inputListPath()) +
         ' --hidden' + (state.customApp ? ' --no-premap --no-warmup --home-launch ' + state.customApp : '') +
         ' --home-code ' + HOME_CODE + ' --kill-on-home ' + HOME_KILL.join(',') + (state.noMotion && !state.customApp ? ' --no-motion' : '');
     return [
@@ -248,8 +275,8 @@ Dock.prototype.startScript = function () {
         'rm -f ' + FIFO,
         'cd ' + q(this.dir),
         'systemd-run --unit=' + UNIT + ' --collect -p WorkingDirectory=' + q(this.dir) + ' -p KillSignal=SIGKILL -p StandardOutput=null -p StandardError=null ' +
-            '/usr/bin/env ' + env + ' /usr/bin/dotnet ' + args + ' >/dev/null 2>&1 || ' +
-        env + ' setsid nohup /usr/bin/dotnet ' + args + ' </dev/null >/dev/null 2>&1 &',
+            '/usr/bin/env ' + env + ' ' + command + args + ' >/dev/null 2>&1 || ' +
+        env + ' setsid nohup ' + command + args + ' </dev/null >/dev/null 2>&1 &',
         'echo started'
     ].join('\n');
 };
@@ -257,7 +284,7 @@ Dock.prototype.startScript = function () {
 // The dock ignores SIGTERM, so it takes kill -9; only a pid that is really our dll is touched.
 Dock.prototype.stopLines = function () {
     return 'systemctl stop ' + UNIT + '.service >/dev/null 2>&1; ' +
-        'p=$(cat ' + PID_FILE + ' 2>/dev/null); if [ -n "$p" ] && tr "\\0" " " < /proc/$p/cmdline 2>/dev/null | grep -q ' + DLL +
+        'p=$(cat ' + PID_FILE + ' 2>/dev/null); if [ -n "$p" ] && tr "\\0" " " < /proc/$p/cmdline 2>/dev/null | grep -q ' + DLL_MATCH +
         '; then kill -9 $p; sleep 0.3; fi; rm -f ' + PID_FILE;
 };
 

@@ -12,6 +12,13 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Root boot-hook and supervisor tests
+        run: ./kant-m2-root/check.sh
+      - name: Tizen 4 chain tests
+        run: node --test chain/tests/*.test.cjs
       - name: Application tests
         run: node app/tests/run.cjs
       - name: Integration fixtures

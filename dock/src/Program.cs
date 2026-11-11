@@ -137,6 +137,26 @@ namespace Launcher
             return null;
         }
 
+        /// <summary>
+        /// Directory that holds the launcher DLL and its res/ folder. AppContext.BaseDirectory
+        /// points at the runtime directory when the TV starts us with corerun; the assembly
+        /// location is correct for both corerun and the dotnet muxer.
+        /// </summary>
+        private static string AppDir()
+        {
+            try
+            {
+                string location = typeof(Program).Assembly.Location;
+                if (!string.IsNullOrEmpty(location))
+                {
+                    string dir = Path.GetDirectoryName(location);
+                    if (!string.IsNullOrEmpty(dir)) return dir;
+                }
+            }
+            catch (Exception) { }
+            return AppContext.BaseDirectory;
+        }
+
         private static bool Flag(string[] args, string name) { return Array.IndexOf(args, name) >= 0; }
 
         private static string ResolveDir(string[] args)
@@ -791,7 +811,8 @@ namespace Launcher
             try
             {
                 if (e == null) return 0;
-                int rc = Libc.system(KeyTool + e.Key);   // Key is letters and digits only (Catalog.IsKeyName)
+                string keyCommand = File.Exists("/usr/bin/input_keyevent") ? KeyTool + e.Key : LegacyTvActions.Key(e.Key);
+                int rc = Libc.system(keyCommand);   // Key is letters and digits only (Catalog.IsKeyName)
                 Log("key " + e.Key + " rc=" + rc);
                 if (rc != 0 && e.AppId != null) LaunchApp(e);
             }
@@ -801,6 +822,11 @@ namespace Launcher
 
         private static void Launch(AppEntry e)
         {
+            if (!File.Exists("/usr/bin/dotnet") && File.Exists("/usr/share/dotnet/corerun"))
+            {
+                string tv = LegacyTvActions.Command(e.Slug, e.AppId);
+                if (tv != null) { Log("legacy TV " + e.Slug + " rc=" + Libc.system(tv)); return; }
+            }
             if (e.Key != null)
             {
                 CancelPendingKey();   // two quick activations: the first timer must not fire with the second entry
@@ -935,8 +961,8 @@ namespace Launcher
                 // size it reports is logged so a different model can be spotted and overridden.
                 Log("screen reported " + sw + "x" + sh + ", layout " + screenW + "x" + screenH);
 
-                _apps = LoadApps(Arg(args, "--apps") ?? Path.Combine(AppContext.BaseDirectory, "res", "apps.tsv"));
-                _inputs = LoadList(Arg(args, "--inputs") ?? Path.Combine(AppContext.BaseDirectory, "res", "inputs.tsv"), Catalog.BuiltInInputs);
+                _apps = LoadApps(Arg(args, "--apps") ?? Path.Combine(AppDir(), "res", "apps.tsv"));
+                _inputs = LoadList(Arg(args, "--inputs") ?? Path.Combine(AppDir(), "res", "inputs.tsv"), Catalog.BuiltInInputs);
                 // One window for both pages: as wide as the wider of the two, the other is centred in it.
                 int windowW = Math.Max(new DockLayout(_apps.Length, screenW, screenH).WinW, new DockLayout(_inputs.Length, screenW, screenH).WinW);
                 var layout = new DockLayout(_apps.Length, screenW, screenH, windowW, false, Catalog.GroupStart(_apps));
@@ -958,7 +984,7 @@ namespace Launcher
                 Efl.evas_object_resize(_win, layout.WinW, layout.WinH);
                 Log("window " + layout.WinW + "x" + layout.WinH + " at " + layout.WinX + "," + layout.WinY + " notification-level=" + level);
 
-                string res = Path.Combine(AppContext.BaseDirectory, "res");
+                string res = Path.Combine(AppDir(), "res");
                 string dumpIcons = Arg(args, "--dump-icons");
                 if (dumpIcons != null && Directory.Exists(dumpIcons)) Dock.DumpIconsTo = dumpIcons;
                 _appsDock = new Dock(_win, layout, _apps, res, Log, Design.HintText, true);

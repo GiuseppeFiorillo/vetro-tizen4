@@ -30,13 +30,19 @@ function buildPort() {
 }
 const PORT_FILES = ['config.xml', 'index.html'];
 function collectFiles() {
-    const dockFiles = dockResources();
+    const profile = process.env.VETRO_PROFILE || 'default';
+    if (!['default', 'tizen4-public'].includes(profile)) throw new Error('Unknown VETRO_PROFILE: ' + profile);
+    const publicOnly = profile === 'tizen4-public';
+    const dockFiles = publicOnly ? [] : dockResources();
     const port = buildPort();
-    const names = ['config.xml', 'index.html', 'icon.png', 'native/TvState.dll', 'native/TvState.runtimeconfig.json',
-        'native/dock/tvlauncher-dotnet.dll', 'native/dock/tvlauncher-dotnet.runtimeconfig.json'].concat(
+    let names = ['config.xml', 'index.html', 'icon.png', 'native/TvState.dll', 'native/TvState.runtimeconfig.json',
+        'native/dock/tvlauncher-dotnet.dll', 'native/dock/tvlauncher-dotnet.runtimeconfig.json',
+        'native/dock/tvlauncher-dotnet-2.0.dll', 'native/dock/tvlauncher-dotnet-2.0.runtimeconfig.json'].concat(
         fs.readdirSync(path.join(__dirname,'service')).filter(name => name.endsWith('.js')).sort().map(name => 'service/' + name));
+    if (publicOnly) names = names.filter(name => !name.startsWith('native/'));
     const metadata = Object.assign({}, require('./service/build-info.js'));
     if (port !== DEFAULT_PORT) metadata.port = port;
+    if (publicOnly) metadata.profile = profile;
     let revision = process.env.VETRO_SOURCE_REVISION;
     if (!revision) {
         try { revision = require('child_process').execFileSync('git', ['rev-parse', 'HEAD'], {cwd: __dirname, stdio: ['ignore','pipe','ignore']}).toString().trim(); } catch (_) {}
@@ -48,6 +54,8 @@ function collectFiles() {
     }
     return names.map(name => ({uri: encodeURIComponent(name), data: name === 'service/build-info.js'
         ? Buffer.from("'use strict';\nmodule.exports = " + JSON.stringify(metadata) + ';\n')
+        : publicOnly && name === 'config.xml'
+        ? Buffer.from(fs.readFileSync(path.join(__dirname,name),'utf8').replace('required_version="3.0"', 'required_version="4.0"').replace(/\b8099\b/g, String(port)))
         : PORT_FILES.includes(name) && port !== DEFAULT_PORT
         ? Buffer.from(fs.readFileSync(path.join(__dirname,name),'utf8').replace(/\b8099\b/g, String(port)))
         : fs.readFileSync(path.join(__dirname,name))}))
@@ -73,7 +81,7 @@ function zip(files) {
     return Buffer.concat(chunks.concat([table,end]));
 }
 function build() {
-    const output = process.env.OUT ? path.resolve(process.env.OUT) : path.join(__dirname,'dist','vetro-app-only.wgt');
+    const output = process.env.OUT ? path.resolve(process.env.OUT) : path.join(__dirname,'dist', process.env.VETRO_PROFILE === 'tizen4-public' ? 'vetro-tizen4-public-unsigned.wgt' : 'vetro-app-only.wgt');
     fs.mkdirSync(path.dirname(output),{recursive:true}); fs.writeFileSync(output,zip(collectFiles()));
     console.log('App-only unsigned package: ' + output);
     return output;

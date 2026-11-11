@@ -1,12 +1,26 @@
 #!/usr/bin/env python3
 """Audit the current tracked release snapshot, not old Git history."""
+import argparse
 import re
 import subprocess
 import sys
 from pathlib import Path
 
 root = Path(__file__).resolve().parents[2]
-paths = subprocess.check_output(['git', 'ls-files', '-z'], cwd=root).decode().split('\0')
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument('--source-tree', action='store_true', help='audit a source snapshot before Git initialization; omit generated directories')
+args = parser.parse_args()
+if args.source_tree:
+    excluded = {'.git', 'node_modules', '__pycache__', 'bin', 'obj', 'dist', 'out', 'state'}
+    paths = [str(p.relative_to(root)) for p in root.rglob('*')
+             if p.is_file() and not excluded.intersection(p.relative_to(root).parts)
+             and p.name != '.DS_Store']
+else:
+    try:
+        paths = subprocess.check_output(['git', 'ls-files', '-z'], cwd=root, stderr=subprocess.DEVNULL).decode().split('\0')
+    except subprocess.CalledProcessError:
+        parser.error('not a Git checkout; use --source-tree to audit a publication snapshot')
+
 problems = []
 for name in filter(None, paths):
     path = root / name

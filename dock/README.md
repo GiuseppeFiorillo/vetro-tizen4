@@ -1,8 +1,9 @@
 # Vetro launcher
 
 A minimal launcher for a rooted Samsung Tizen TV, written in C# against the TV's own EFL
-libraries and run with the TV's `dotnet`. Vetro starts and stops it from its **Launcher**
-tab; it is off until you turn it on.
+libraries and run with the TV's .NET runtime: the `dotnet` muxer where the firmware ships
+it, otherwise the `corerun` of the installed runtime. Vetro starts and stops it from its
+**Launcher** tab; it is off until you turn it on.
 
 The launcher is a bundled Vetro plugin: `app/service/plugin-launcher.js` owns supervision and API
 actions, and the existing `/dock` URLs are aliases. Its native files still ship with Vetro and are
@@ -13,6 +14,8 @@ focus movement, icon growth/lift and per-icon glow colours; entrance and exit fa
 When it is on, the Home key opens this launcher instead of Samsung's Home. The dock shows
 the same apps, in the same order and with the same icons as Samsung's Home row, read
 from the TV at start-up, and ends with two outline pills, Settings and Samsung Home.
+
+The Samsung Home pill uses the original upstream `app_launcher -s` request, with the existing fallback for firmware that defines one. On the tested Tizen 4 TV this programmatic launch is not reliable. Timing retries, forced user/environment settings and HbbTV workarounds are not included. Leave the launcher disabled when you need the normal Samsung Home key.
 
 ## Layout
 
@@ -43,11 +46,13 @@ name labels and no clock, so the label styling options are not carried either.
 ## Build
 
 ```sh
-dotnet build -c Release Launcher.csproj   # targets netcoreapp3.1, the runtime on the TV
+dotnet build -c Release Launcher.csproj                                    # netcoreapp3.1, /usr/bin/dotnet
+dotnet build -c Release -p:VetroLauncherTfm=netcoreapp2.0 Launcher.csproj  # netcoreapp2.0, corerun
 ```
 
-Run `sh dock/build.sh` from the repository root to build and copy the native DLL and runtime config
-into `app/native/dock/`. The package builder reads those copies; it does not compile C# automatically.
+Run `sh dock/build.sh` from the repository root to build both and copy them, with their runtime
+configs, into `app/native/dock/`. The package builder reads those copies; it does not compile C#
+automatically. If `dotnet` is not on `PATH`, pass it in: `DOTNET=/path/to/dotnet sh dock/build.sh`.
 After changing native sources, rebuild before packaging. Run `dotnet run --project dock/tests` for the
 pure logic, raw-input echo, Home guard cancellation and system-launch fallback checks (the shell
 fixtures run on a Unix desktop and never access a TV).

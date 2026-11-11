@@ -2,9 +2,11 @@
 
 [Back to Vetro](../../README.md)
 
-Vetro can update itself from **Quick settings → General → Software update**. You press **Check for update**; the dashboard (in your browser) asks GitHub for the newest signed update, and **Update** sends it to the TV. No computer has to be connected to the TV, and **Host PC IP** stays at `127.0.0.1`.
+> **This does not apply to the Tizen 4 fork.** The update source and the signing key belong to upstream, so using **Software update** on a Kant-M2 set replaces the Tizen 4 service files with the stock ones and the fork stops working. Update the fork by rebuilding and reinstalling the package: [Installation guide](INSTALLATION.md#updating).
 
-This is a file swap done with the root agent, not a new install. It cannot change what the package declares in `config.xml` (privileges, service flags). When a version does, Vetro says so and you install it once more with Apps2Samsung.
+Vetro can update itself from **Quick settings → General → Software update**. You press **Check for update**; the dashboard (in your browser) asks GitHub for the newest signed update, and **Update** sends it to the TV. No computer has to be connected to the TV.
+
+This is a file swap done with the root agent, not a new install. It cannot change what the package declares in `config.xml` (privileges, service flags). When a version does, you install it once more with the installation procedure for your TV (upstream: Apps2Samsung).
 
 ## What an update covers
 

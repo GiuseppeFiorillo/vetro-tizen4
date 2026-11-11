@@ -47,7 +47,7 @@ function isPrivacy(appId, pkg) {
 
 // Read the full package/app registry as CSV (package,app_id,app_disable).
 function listCommand() {
-    return 'sqlite3 -readonly -header -csv /opt/dbspace/.pkgmgr_parser.db ' +
+    return 'sqlite3 -header -csv /opt/dbspace/.pkgmgr_parser.db ' +
         '"SELECT package,app_id,app_disable FROM package_app_info;"';
 }
 

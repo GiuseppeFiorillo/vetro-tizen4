@@ -13,7 +13,10 @@ function fixture(options) {
     const dir = path.join(tmp, 'dock');
     fs.mkdirSync(path.join(dir, 'res'), {recursive: true});
     fs.writeFileSync(path.join(dir, 'tvlauncher-dotnet.dll'), 'x');
+    fs.writeFileSync(path.join(dir, 'tvlauncher-dotnet-2.0.dll'), 'x');
     fs.writeFileSync(path.join(dir, 'res', 'glass_tile.png'), 'x');
+    const dotnet = path.join(tmp, 'dotnet');
+    fs.writeFileSync(dotnet, '#!/bin/sh\n');
     const tv = {autorun: 1, running: false, scripts: [], clock: 1000000, started: null, homeCalls: [], csfsKilled: false};
     const execute = async function (cmd) {
         tv.scripts.push(cmd);
@@ -32,7 +35,7 @@ function fixture(options) {
         restore: async () => { tv.homeCalls.push('restore'); if (options.restoreFails) throw new Error('registry busy'); }
     };
     const dock = new Dock({execute, dir, stateFile: path.join(tmp, 'state.json'), appsFile: path.join(tmp, 'apps.tsv'),
-        customAppsFile: path.join(tmp, 'custom.tsv'), home, appCheck: async id => ({ok: true, label: id}),
+        customAppsFile: path.join(tmp, 'custom.tsv'), home, appCheck: async id => ({ok: true, label: id}), dotnet,
         sleep: async ms => { tv.clock += ms; }, now: () => tv.clock});
     return {dock, tv, tmp};
 }

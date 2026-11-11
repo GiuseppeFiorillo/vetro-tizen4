@@ -31,11 +31,11 @@ var ABS_SET_RE = /__ABS__\s*1/;
 var fs=require('fs'),KEY='db/menu/system/data-service',FILE='/opt/usr/home/owner/share/vetro-hbbtv.json';
 var APP='org.tizen.hbbtv',SERVICE='org.tizen.hbbtv-service',FLAG='/tmp/hbbtv_do-not-relaunch',RUNFLAG='/tmp/hbbtv_app_running';
 var DB='/opt/dbspace/.pkgmgr_parser.db';
-var DISABLED='sqlite3 -readonly '+DB+' "SELECT app_disable FROM package_app_info WHERE app_id=\''+SERVICE+'\';" 2>/dev/null | grep -q true';
+var DISABLED='sqlite3 '+DB+' "SELECT app_disable FROM package_app_info WHERE app_id=\''+SERVICE+'\';" 2>/dev/null | grep -q true';
 // Not every firmware has the service app: of the 41 rooted TVs in the community reports, 24 (2023 and later) list org.tizen.hbbtv
 // but not org.tizen.hbbtv-service. There is nothing to disable there, and the plain stop was always enough. Absent only
 // counts when the registry answers "0 rows"; an unreadable registry is not "absent", so Off is not claimed on a guess.
-var ABSENT='sqlite3 -readonly '+DB+' "SELECT count(*) FROM package_app_info WHERE app_id=\''+SERVICE+'\';" 2>/dev/null | grep -q "^0$"';
+var ABSENT='sqlite3 '+DB+' "SELECT count(*) FROM package_app_info WHERE app_id=\''+SERVICE+'\';" 2>/dev/null | grep -q "^0$"';
 // Disabling also ends a running service. read() checks the result afterwards, so the tool's exit code is not trusted.
 var DISABLE_SVC='if ! '+ABSENT+'; then pkgcmd -D -t app -n '+SERVICE+' --global >/dev/null 2>&1 || true; fi';
 var ENABLE_SVC='if '+DISABLED+'; then pkgcmd -A -t app -n '+SERVICE+' --global >/dev/null 2>&1 || true; fi';

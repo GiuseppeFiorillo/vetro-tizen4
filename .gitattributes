@@ -19,3 +19,9 @@ rooting/tools/upload-via-exec.py export-ignore
 
 app/experiments/** export-ignore
 app/tests/animations.test.cjs export-ignore
+
+kant-m2-root/state/** export-ignore
+kant-m2-root/out/** export-ignore
+dock/**/bin/** export-ignore
+dock/**/obj/** export-ignore
+.impeccable/** export-ignore

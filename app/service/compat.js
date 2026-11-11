@@ -19,6 +19,7 @@ function install(env) {
 
     if (typeof PromiseRef.prototype.finally !== 'function') {
         PromiseRef.prototype.finally = function (callback) {
+            if (typeof callback !== 'function') return this.then(callback, callback);
             var P = this.constructor || PromiseRef;
             return this.then(function (value) {
                 return P.resolve(callback()).then(function () { return value; });
@@ -29,13 +30,12 @@ function install(env) {
     }
 
     if (typeof BufferRef.alloc !== 'function') {
-        // Only reached on a runtime without Buffer.alloc. `new Buffer` is that
-        // runtime's allocator and is zero-filled there; allocUnsafe is used when
-        // present so the fallback never recurses into a Buffer.alloc of its own.
+        // Both legacy new Buffer(size) and allocUnsafe may contain old memory.
+        // Always clear it before applying an optional fill.
         BufferRef.alloc = function (size, fill, encoding) {
             var unsafe = typeof BufferRef.allocUnsafe === 'function';
             var buffer = unsafe ? BufferRef.allocUnsafe(size) : new BufferRef(size);
-            if (unsafe) buffer.fill(0);
+            buffer.fill(0);
             if (fill !== undefined) buffer.fill(fill, 0, size, encoding);
             return buffer;
         };
@@ -49,7 +49,25 @@ function install(env) {
             configurable: true,
             writable: true,
             value: function (value, encoding) {
-                if (typeof value !== 'string') return typedArrayFrom.apply(BufferRef, arguments);
+                if (typeof value === 'number' || value === null || value === undefined) {
+                    throw new TypeError('Buffer.from requires a string, buffer or array');
+                }
+                if (typeof value !== 'string') {
+                    // On Node 4 the inherited TypedArray.from rejects arrays and
+                    // Buffers too. Its legacy constructor handles both, copying
+                    // bytes; on modern Node keep the captured native function.
+                    if (typeof BufferRef.allocUnsafe === 'function') return typedArrayFrom.apply(BufferRef, arguments);
+                    if (typeof ArrayBuffer !== 'undefined' && value instanceof ArrayBuffer) {
+                        var offset = encoding === undefined ? 0 : Number(encoding);
+                        var length = arguments[2] === undefined ? value.byteLength - offset : Number(arguments[2]);
+                        if (!isFinite(offset) || offset < 0 || Math.floor(offset) !== offset ||
+                            !isFinite(length) || length < 0 || Math.floor(length) !== length || offset + length > value.byteLength) {
+                            throw new RangeError('Buffer.from ArrayBuffer bounds');
+                        }
+                        return new BufferRef(value).slice(offset, offset + length);
+                    }
+                    return new BufferRef(value);
+                }
                 // Not `new Buffer(value)`: on a modern runtime that constructor
                 // delegates back to Buffer.from and would recurse.
                 var size = BufferRef.byteLength(value, encoding);
