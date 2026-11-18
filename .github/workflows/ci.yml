@@ -17,6 +17,8 @@ jobs:
           node-version: 22
       - name: Root boot-hook and supervisor tests
         run: ./kant-m2-root/check.sh
+      - name: Standalone recovery marker fixtures
+        run: node --test kant-m2-root/tests/standalone-recovery.test.cjs
       - name: Tizen 4 chain tests
         run: node --test chain/tests/*.test.cjs
       - name: Application tests
