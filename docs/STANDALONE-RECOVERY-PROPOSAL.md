@@ -1,9 +1,11 @@
 # Proposal: standalone Vetro with independent USB recovery
 
-Status: design review, not an installable standalone release. The accompanying
-marker detector is inert unless explicitly called. This change neither installs
-boot hooks nor starts services, grants root, changes pairing or disables Samsung
-Home. Keep the current installation workflow until an integration is reviewed.
+Status: draft review. The optional `kant-m2-root/nu7100/` directory now includes
+the full source and a reproducible build of the exact-target USB installer and
+standalone runtime. Its build/tests do not install anything or contact a TV.
+It is not wired into the default app package or updater. The separate generic
+marker detector remains inert unless explicitly called. See the NU7100 README
+for required owner-supplied input, pinned dependencies and operator-only steps.
 
 ## Evidence and support boundary
 
@@ -23,10 +25,12 @@ T-KTM2LDEUC-1400.2**, exact build `T-KTM2LDEUC-REL-202606052034`:
   catalog readiness still needs investigation.
 
 These are observations from that local build, not hardware validation of this
-PR or evidence that other models are supported. Its full supervisor, installer,
-pairing display and root integration are deliberately outside this initial PR.
-The accompanying detector uses the same source as the locally tested watcher,
-with host regression tests added here.
+PR or evidence that other models are supported. The full supervisor, installer,
+pairing display and root integration are included as an optional, pinned reference
+under `kant-m2-root/nu7100/`, not as changes to the normal installation route.
+Host source replay reproduced the exact logged installer and recovery image hashes;
+it is not another hardware trial. The generic detector uses the same source as
+the locally tested watcher, with host regression tests added here.
 
 ## Proposed boundaries
 

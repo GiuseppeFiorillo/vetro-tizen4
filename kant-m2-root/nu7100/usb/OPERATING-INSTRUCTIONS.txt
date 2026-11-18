@@ -1,0 +1,68 @@
+Vetro USB kit -- tested candidate, UE65NU7100 / 1400.2
+
+This contains the EXACT logged installer image that succeeded on the owner's
+factory-reset TV, with Developer Mode OFF, on 2026-11-18. No PC listener, SDB,
+developer certificate or existing Vetro install was used. Root, the homescreen,
+two USB-free cold boots, automatic rearming, pairing, and USB recovery retaining
+paired maintenance access passed. The TV was restored to normal standalone mode.
+
+EXACT TARGET ONLY
+Samsung UE65NU7100, T-KTM2LDEUC-1400.2, BUILD_ID
+T-KTM2LDEUC-REL-202606052034, Linux4.1.10. The trigger uses fixed kernel addresses
+BEFORE installer compatibility checks. Other models/firmware are untested.
+Do not update or reflash firmware for this kit. It refuses existing root folders
+or changed vendor startup hooks; it is a fresh installer, not an updater.
+
+PREPARE USB -- Administrator PowerShell
+  .\\Write-Usb.ps1 -List
+  .\\Write-Usb.ps1 -Mode Install -DiskNumber N -ExpectedUniqueId 'EXACT_ID' -Erase
+Choose only an erasable spare USB by its actual number and ID. The writer checks
+identity, rejects boot/system disks, verifies the image hash, and reads back every
+written byte. Windows may offer to format/repair the crafted partition: CANCEL.
+
+INSTALL
+1. Keep Developer Mode OFF. Disconnect all other USB storage. Safely eject the
+   installer from the PC. With TV unplugged for30seconds, insert only this stick.
+2. Power on and start a45-second timer. REMOVE the stick when the timer ends,
+   sooner if TV starts restarting. Do not repeatedly boot with it inserted.
+3. With USB OUT, unplug TV for30seconds, then power on normally. Return the stick
+   to the PC and read VETROSETUP/RESULT.JSON. Success phase: installed-remove-usb.
+   Missing/failed status is not success; retain the stick's diagnostics.
+4. Open http://TV_IP:18100 and pair using a visible code on the TV. Press Home
+   to use the dock. No account credentials or pairing keys are preloaded.
+5. Verify root/normal operation and one more USB-free cold boot before accepting
+   installation. Firmware and apps are not flashed/installed by this kit.
+
+RECOVERY
+Use a separate stick if available. Otherwise save RESULT.JSON and reflash the
+installer stick with RECOVERY.img using -Mode Recovery. This REPLACES the crafted
+trigger with an ordinary FAT32 volume. Safely eject, insert into the powered-on
+TV, and wait a few seconds: Samsung Home opens, dock stops, original preference
+restores. Root and the paired dashboard remain available. Recovery persists
+across boots; removing the USB alone does not re-enable the dock.
+After removal, pair and resume from a PC with Node18+:
+  node maintenance.cjs TV_IP resume
+The code belongs to this client request; a browser has its own pairing request.
+The ordinary recovery marker needs a running supervisor and cannot repair every
+possible partial installation. Failed partial installs require diagnosis.
+
+KNOWN LIMITATIONS
+- The earlier unlogged candidate failed one fresh attempt. This logged variant
+  succeeded, but the cause of that difference is unproven; no broad reliability
+  guarantee follows from one controlled fresh-install run.
+- First-start icons may be missing until the catalog refreshes and a subsequent
+  restart. Allow at least5minutes on the first normal boot before that restart.
+  After the tested restart, icons/navigation/app launching worked.
+- No verified on-screen completion display. Use the timer and RESULT.JSON.
+- Logged bootstrap diagnostics occupy unused USB bytes4096..12287; no network
+  callback or unpaired command listener is installed. No UEP gate patch is used.
+- Firmware updates, other models and power-loss during installation are untested.
+
+14 firmware-Node4 fixture cases, trigger structure, address/zero-halfword checks,
+image/FAT/manifest validation and writer compilation passed before hardware use.
+104 installed static files matched the payload. Details: VALIDATION.json and
+STAGE-CHECKS.json. Corresponding sources/licenses are included in SOURCE/LICENSES.
+This source build reproduces the logged INSTALL.img and RECOVERY.img hashes.
+Read the accompanying nu7100 README for the self-contained build and its limits.
+The FAT volume retains its historical candidate README for exact image parity;
+these OPERATING-INSTRUCTIONS take precedence for the tested logged variant.

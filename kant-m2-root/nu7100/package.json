@@ -1,0 +1,11 @@
+{
+  "name": "vetro-nu7100-compat",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "test": "node --test tests/target.test.cjs",
+    "test:reproduce": "node --test tests/compat.test.cjs",
+    "test:fixtures": "node usb/run-fixtures.cjs"
+  },
+  "engines": {"node": ">=18"}
+}

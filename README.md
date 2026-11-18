@@ -30,6 +30,13 @@ The boot hook has been observed starting the root daemon after a cold boot witho
 
 ## Installation
 
+An optional [NU7100 standalone USB reference](kant-m2-root/nu7100/README.md) is
+available for draft review. It is restricted to **UE65NU7100 / T-KTM2LDEUC-1400.2**,
+exact build `T-KTM2LDEUC-REL-202606052034`; other models are unsupported. Its source
+build reproduces the logged installer and recovery images tested on that device,
+requires the owner's hash-checked original startup-script input, and does not
+modify the default installation route below. Read its limitations before use.
+
 The supported route for the tested Kant-M2 TV is:
 
 1. Obtain a root shell using the [Kant-M2 USB root project](https://github.com/GiuseppeFiorillo/samsung-tv-usb-root-kant-m2).

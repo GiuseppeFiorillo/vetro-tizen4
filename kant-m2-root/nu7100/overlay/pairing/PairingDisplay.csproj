@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType><TargetFramework>netcoreapp2.0</TargetFramework>
+    <AssemblyName>vetro-pairing-display</AssemblyName><LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable><ImplicitUsings>disable</ImplicitUsings>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <VetroSourceRoot Condition="'$(VetroSourceRoot)' == ''">$(MSBuildProjectDirectory)/../../out/prepared</VetroSourceRoot>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="PairingDisplay.cs" />
+    <Compile Include="$(VetroSourceRoot)/dock/src/Native/Efl.cs" Link="Efl.cs" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,10 @@
+[Unit]
+Description=Vetro standalone startup and USB recovery supervisor
+After=starter.target systemd-tmpfiles-setup.service vetro-rootd.service
+[Service]
+Type=simple
+ExecStart=/usr/bin/node -e "require('/opt/vetro-standalone-trial/permanent.js').run()"
+Restart=no
+TimeoutStopSec=5
+StandardOutput=null
+StandardError=null

@@ -1,0 +1,34 @@
+{
+  "artifacts": {
+    "dock/tvlauncher-dotnet-2.0.dll": "c55c7020048e138f6b7a21cb9c31c76eecb9469d09bc859eb0d5cdf4edcc68ad",
+    "dock/tvlauncher-dotnet-2.0.runtimeconfig.json": "3f2714fccaffb7463c14b82ae23a7e2263c027acb8de4c674cea5644e62d3a3f",
+    "pairing/vetro-pairing-display.dll": "6b26a584975d40f00a2773cb23e9cc9cf11f2653373fca090e29cef681f0b162",
+    "pairing/vetro-pairing-display.runtimeconfig.json": "dc01b9c8d2bd85184dc0c950a374d5098c10ca30397031ae8ea162bd5c521754"
+  },
+  "launcherInputs": {
+    "dock/src/Core/Catalog.cs": "f641998f49acda493b6393a0aa21c68e69fd8d811d6d8eab3e4458348d150220",
+    "dock/src/Core/Commands.cs": "304db6ad69bda4d693c14fe2f421ee5ee17fee11ac629cbf63f3e9712f3bab40",
+    "dock/src/Core/Controller.cs": "2418d560a7642390959a5b4d254cb467f02157ad34d6b82ef9cf5e51e2820937",
+    "dock/src/Core/Design.cs": "1b92d00f2387ad82460df6c6a16eab56de193fedfc55d7db30eacbe19942e80f",
+    "dock/src/Core/Evdev.cs": "0850aa78cb1459a9bf2225d218f3efbf7e10e73f3759ceb9cb105c7b9902f87c",
+    "dock/src/Core/HomeGuard.cs": "c817807f99db475a5972b8a0364e4634f11f738ffbe7607feee266e8f8cbdbc2",
+    "dock/src/Core/IconPrep.cs": "2c54dbab2357b2763101c5e22383cd2d6ad5bba1d4694894903cf601b2fe6af4",
+    "dock/src/Core/LabelFader.cs": "2dc28b58f76ae2dfb51b552523bdb2b089875b91e9de38a39aa5d02fb26917ca",
+    "dock/src/Core/Layout.cs": "86a2a2867e26964996b00f845dca99e7ca6bcf4bdebcc57a00a8d28a68de17cd",
+    "dock/src/Core/LegacyTvActions.cs": "87fea494814e63a1bf5a3db08ed535c41b84173031085603e7fa2f4325ec2600",
+    "dock/src/Core/NavigationInput.cs": "f74de03559d166988599d1431060f57bfcd1ea6e68f5f30dcf006f8e68274d12",
+    "dock/src/Core/SystemLaunch.cs": "e6e955972690877d109ed7c18ac22bc9c0cfe5480778d2215db1cb93c6d47535",
+    "dock/src/Native/Efl.cs": "5032026190e1f84f3a61a738fb95698c0e310ef14d12b68c97023f0362b98e94",
+    "dock/src/Native/Libc.cs": "0a4d32a7d95f0a13f933655dec3c5da6f5c1ecb067a743f86b20524145418421",
+    "dock/src/Program.cs": "cd36df9e3a8a9414fbd84f90246fab06f7304aeb46030ddb8c25992871e1fd85",
+    "dock/src/Ui/Dock.cs": "7ee52db7472b7fd50ca359a3f25eef44ae7066588b1e4ba5dd1542f14b6fb606",
+    "dock/Launcher.csproj": "8453660670c634e138c6ac4b1e9717463b7760185d73f39e3c8701abe93df954"
+  },
+  "pairingInputs": {
+    "PairingDisplay.cs": "4eabfb18fdcb599c458e05c229cd34f1e24904098e6d741e7af696d4d7d7aa00",
+    "PairingDisplay.csproj": "e26afb2b3c0e629b72e0e1a254294ac7e0635a9310d6e9a66d16d50eaacf67eb"
+  },
+  "note": "Pinned tested binaries; changed native inputs require an explicit rebuild and new artifact manifest.",
+  "textNormalization": "utf8-lf",
+  "projectPortabilityNote": "Only the EFL source include path was made portable; the PairingDisplay.cs and pinned Efl.cs inputs and tested binary bytes are unchanged. Rebuild instructions are included."
+}

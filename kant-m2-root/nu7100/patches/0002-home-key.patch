@@ -1,0 +1,30 @@
+diff --git a/dock/src/Program.cs b/dock/src/Program.cs
+--- a/dock/src/Program.cs
++++ b/dock/src/Program.cs
+@@ -65,6 +65,7 @@
+         // was closed again by the kills still pending, and the pill seemed to do nothing.
+         private static int _guardGen;
+         private static string _guardFile;
++        private static bool _debugGuard;
+         private static int _homeCode = -1;
+         // --home-launch APPID: the custom launcher mode. The Home key opens that app instead of the dock, and the dock
+         // itself is never shown. Samsung's Home is NOT disabled in this mode (the TV's boot waits for it): the guard below is what keeps it away.
+@@ -715,7 +716,9 @@
+             try
+             {
+                 NewGuardGeneration();
+-                Libc.system(HomeGuard.Command(_guardApps, _guardFile, _guardGen));   // returns at once: the shell puts the whole chain in the background
++                int result = Libc.system(HomeGuard.Command(_guardApps, _guardFile, _guardGen,
++                    _debugGuard ? Path.Combine(_dir, "tvlauncher.guard.log") : null));
++                if (_debugGuard) Log("guard: dispatch status=" + result + " generation=" + _guardGen);
+             }
+             catch (Exception ex) { Log("guard: " + ex.Message); }
+         }
+@@ -1001,6 +1004,7 @@
+ 
+                 Efl.evas_object_event_callback_add(_win, Efl.EvasCallbackKeyDown, KeyCb, IntPtr.Zero);
+                 SetupFifo();
++                _debugGuard = Flag(args, "--debug-guard");
+                 string guard = Arg(args, "--kill-on-home");
+                 if (guard != null)
+                 {

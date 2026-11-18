@@ -1,0 +1,17 @@
+{
+  "model": "UE65NU7100",
+  "firmware": "T-KTM2LDEUC-1400.2",
+  "build": "T-KTM2LDEUC-REL-202606052034",
+  "files": {
+    "INSTALL.JS": "cd72b5c903dcb374985fb60e0470f287dc272049abc782ef5e134531afe145fa",
+    "PAYLOAD.TGZ": "ba3289a02567ef39824094f79748b17fdc87dae227c49a0988c55abb77d3df76",
+    "PACKAGE.JSON": "1cb137447f004dc2e61ae3607b46c54c8478a904e82ec1285d958a72e33bc0fd",
+    "README.TXT": "1865cad3feaa6b44cfc22b4bf0df28cc256b5c13cd57e3aa6754ae2381e71b3a",
+    "INSTALL.img": "eb425440a16e97d7480203b6f3a303e7b34d4767379b18c63a078290a95b0974",
+    "RECOVERY.img": "3d2e55ab671eb76e8c864bcadc52d7617920b6896ea0919570c01d06191a2d77"
+  },
+  "stageSha256": "caef8ca249550cdb96fb44a6837e7042d3e410408a67bd1d04b2c52c395efca8",
+  "payloadFiles": 104,
+  "hardwareFreshInstallRunsPassed": 1,
+  "earlierUnloggedAttemptFailed": true
+}

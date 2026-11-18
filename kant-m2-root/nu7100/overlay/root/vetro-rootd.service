@@ -1,0 +1,17 @@
+[Unit]
+Description=Vetro root daemon with guarded recurring startup
+After=starter.target systemd-tmpfiles-setup.service
+ConditionPathExists=/opt/vetro-root/startup.js
+[Service]
+Type=simple
+Environment=VETRO_ROOT_PID=/tmp/vetro-root-daemon.pid
+Environment=VETRO_ROOT_LOCK=/tmp/vetro-root-daemon.lock
+Environment=VETRO_ROOT_LOG=/opt/vetro-root/daemon.log
+ExecStart=/usr/bin/node -e "require('/opt/vetro-root/startup.js').create(require('/opt/vetro-root/config.json')).start()"
+Restart=on-failure
+RestartSec=10
+StartLimitInterval=120
+StartLimitBurst=3
+TimeoutStopSec=3
+StandardOutput=null
+StandardError=null

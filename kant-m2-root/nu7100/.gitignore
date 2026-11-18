@@ -1,0 +1,14 @@
+.cache/
+out/
+.venv/
+__pycache__/
+inputs/
+**/bin/
+**/obj/
+*.wgt
+*.p12
+*.pfx
+*.dpapi
+*.pem
+*.key
+profiles.xml

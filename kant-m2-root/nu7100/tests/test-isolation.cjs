@@ -1,0 +1,24 @@
+'use strict';
+// Exercise actual request cleanup and cookie handling with isolated in-memory FS.
+const fs=require('fs'),path=require('path'),vm=require('vm'),assert=require('assert');
+const base=path.join(process.env.VETRO_TEST_PAYLOAD,'standalone/service');
+const original='/opt/usr/home/owner/share/vetro-root-request.json',fallback='/tmp/vetro-root-request.json';
+const custom='/opt/usr/home/owner/share/vetro-standalone-trial/vetro-root-request.json';
+const files=new Map([[original,'production'],[fallback,'production-fallback'],[custom,'trial']]);
+const fakeFs={readFileSync:()=>'',unlinkSync:p=>{files.delete(p);}};
+const context={module:{exports:{}},exports:{},process:{env:{VETRO_ROOT_REQUEST:custom},pid:123,version:'v4.4.3',getuid:()=>5001},Buffer,Date,console,require:n=>n==='fs'?fakeFs:n==='crypto'?require('crypto'):n==='./root-agent-server.js'?{RootAgentServer:function(){}}:{}};
+vm.runInNewContext(fs.readFileSync(path.join(base,'platform.js'),'utf8'),context);
+context.module.exports.stop();
+assert(!files.has(custom));assert.strictEqual(files.get(original),'production');assert.strictEqual(files.get(fallback),'production-fallback');
+const auth=fs.readFileSync(path.join(base,'auth.js'),'utf8');
+assert(auth.includes("var COOKIE = 'vetro_standalone_trial_session'"));
+assert(auth.includes("var PAIR_COOKIE = 'vetro_standalone_trial_pair'"));
+const main=fs.readFileSync(path.join(base,'main.js'),'utf8');
+assert(!main.includes('var selfStartupTimer='));assert(!main.includes('var keepRemovedBootTimer='));assert(!main.includes('var winsBootTimer='));assert(!main.includes('var dnsRestoreTimer='));
+assert(main.includes("/opt/vetro-standalone-trial/pairing-broker.js"));
+const dock=fs.readFileSync(path.join(base,'dock.js'),'utf8');
+assert(dock.includes("var UNIT = 'vetro-standalone-dock-trial'"));
+console.log('PASS: custom request cleanup preserves both production requests');
+console.log('PASS: browser cookie namespaces isolated across ports');
+console.log('PASS: test service cannot run package/policy restoration boot tasks');
+console.log('PASS: pairing UI and dock paths point at standalone trial');

@@ -1,0 +1,5 @@
+[Unit]
+Description=Automatic expiry of isolated Vetro standalone trial
+[Timer]
+OnActiveSec=30min
+Unit=vetro-standalone-expire-trial.service

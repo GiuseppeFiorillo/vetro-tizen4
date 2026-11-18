@@ -1,0 +1,22 @@
+[
+  {
+    "file": "0001-home-guard.patch",
+    "reason": "Optional Home guard diagnostic output",
+    "sha256": "ccfc5c674acf65ebf946b79f04a3de9ec1343f5f0be9bc4344b4007f883a938a"
+  },
+  {
+    "file": "0002-home-key.patch",
+    "reason": "Opt-in Home guard debug flag and dispatch status",
+    "sha256": "56dd7219da776f4b504897701280eb25e748e7d287b194e84eb77b2fba73b67e"
+  },
+  {
+    "file": "0003-native-streaming.patch",
+    "reason": "Owner-native Netflix and YouTube launch routes",
+    "sha256": "e5b2abe07aac8e0f59fec694bfaf67ddd6cd251de245c7dac9f828b357fef115"
+  },
+  {
+    "file": "0004-launcher-regressions.patch",
+    "reason": "Regression coverage for the launcher changes",
+    "sha256": "967790b707a58761c6d748c06b23db5770849fc019b4d705f4ddfb0cf74cdfe9"
+  }
+]

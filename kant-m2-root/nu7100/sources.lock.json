@@ -1,0 +1,35 @@
+{
+  "schema": 1,
+  "sources": {
+    "upstream": {
+      "repository": "https://github.com/andrearicci93/vetro",
+      "commit": "42bceac690aed4c3ac42cfd2c85f20054fc8c81b",
+      "archiveSha256": "9d924b6064133cd462407a8d70854ec753d144f72a03391a567adca77a392404",
+      "archiveName": "vetro.zip",
+      "archiveRoot": "vetro-main",
+      "download": "https://codeload.github.com/andrearicci93/vetro/zip/42bceac690aed4c3ac42cfd2c85f20054fc8c81b",
+      "treeSha256": "2cc4569351e3d4496f86b2535611b784d5e2ddc77b96c21ba20a568379031f97",
+      "fileCount": 371
+    },
+    "tizen4": {
+      "repository": "https://github.com/GiuseppeFiorillo/vetro-tizen4",
+      "commit": "3ecb6856ae253fa8df8aa23ecd4bb17102f08046",
+      "archiveSha256": "7f43be93629f7532e98be6197cb3bdcc2c2cecd3b3a523a656afc352682c3542",
+      "archiveName": "vetro-tizen4.zip",
+      "archiveRoot": "vetro-tizen4-main",
+      "download": "https://codeload.github.com/GiuseppeFiorillo/vetro-tizen4/zip/3ecb6856ae253fa8df8aa23ecd4bb17102f08046",
+      "treeSha256": "7c3337f24a42bc24f6516959602d97920e39a66a1286de87705c35de25c8e494",
+      "fileCount": 518
+    },
+    "usbRoot": {
+      "repository": "https://github.com/GiuseppeFiorillo/samsung-tv-usb-root-kant-m2",
+      "commit": "0c9d176c4f7c5f1822db7663002dda32dde673c0",
+      "archiveSha256": "1e82761fe8012618f2782dee1169af36f503dd6a163f43d0d2db5e2432736fb8",
+      "archiveName": "kant-m2.zip",
+      "treeSha256": "0e973a9394ef4e2500db11cba6eeccb71c58cf850546e380be6bd6a29f81523f",
+      "fileCount": 27,
+      "note": "Separate firmware-specific installer dependency; never selected when updating only Vetro."
+    }
+  },
+  "note": "Upstream and Tizen4 port are separate dependencies. Local display version0.5.1 is not an upstream0.5.1 release."
+}

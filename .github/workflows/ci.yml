@@ -5,6 +5,23 @@ on:
 permissions:
   contents: read
 jobs:
+  nu7100-host-fixtures:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Build pinned host fixture toolchain
+        run: docker build -t vetro-nu7100-fixtures kant-m2-root/nu7100
+      - name: Run offline fixtures without firmware or device access
+        run: |
+          mkdir -p "$RUNNER_TEMP/nu7100-fixtures"
+          mkdir -p "$GITHUB_WORKSPACE/kant-m2-root/nu7100/out"
+          docker run --rm --network none \
+            --mount "type=bind,source=$GITHUB_WORKSPACE/kant-m2-root/nu7100,target=/work,readonly" \
+            --mount "type=bind,source=$RUNNER_TEMP/nu7100-fixtures,target=/work/out" \
+            vetro-nu7100-fixtures sh tools/check-fixtures.sh
   check:
     runs-on: ubuntu-latest
     timeout-minutes: 10

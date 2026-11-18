@@ -1,0 +1,66 @@
+diff --git a/dock/tests/LauncherRegressionTests.cs b/dock/tests/LauncherRegressionTests.cs
+--- a/dock/tests/LauncherRegressionTests.cs
++++ b/dock/tests/LauncherRegressionTests.cs
+@@ -21,6 +21,32 @@
+ 
+         public static void Run()
+         {
++            T.Run("legacy streaming: web tiles use native runtime and owner identity", () =>
++            {
++                string dir = Path.Combine(Path.GetTempPath(), "vetro-streaming-" + Guid.NewGuid().ToString("N"));
++                Directory.CreateDirectory(dir);
++                try
++                {
++                    string tool = Path.Combine(dir, "launcher"), log = Path.Combine(dir, "calls");
++                    File.WriteAllText(tool, "#!/bin/sh\nprintf '%s\\n' \"$*\" >> " + Q(log) + "\n");
++                    Shell("chmod +x " + Q(tool));
++                    string[] ids = { "9Ur5IzDKqV.TizenYouTube", "com.samsung.tv.cobalt-yt", "RN1MCdNq8t.Netflix", "org.tizen.netflix-app" };
++                    foreach (string id in ids)
++                    {
++                        string command = LegacyTvActions.Command("tile", id).Replace("/usr/bin/app_launcher", Q(tool))
++                            .Replace("/home/owner/tvlauncher-system-launch.log", Q(Path.Combine(dir, "output")));
++                        Shell(command + " wait");
++                    }
++                    string[] calls = File.ReadAllLines(log);
++                    T.Eq(calls.Length, 4, "one native launch per activation");
++                    T.Eq(calls[0], "-s com.samsung.tv.cobalt-yt -u 5001", "web YouTube uses native owner session");
++                    T.Eq(calls[1], calls[0], "native YouTube also keeps owner identity");
++                    T.Eq(calls[2], "-s org.tizen.netflix-app -u 5001", "web Netflix uses native owner runtime");
++                    T.Eq(calls[3], calls[2], "native Netflix also keeps owner identity");
++                    T.Eq(LegacyTvActions.Command("prime", "evKhCgZelL.AmazonIgnitionLauncher2"), null, "other streaming apps are unchanged");
++                }
++                finally { Directory.Delete(dir, true); }
++            });
+             T.Run("legacy TV actions: separate tuner and TV Plus, native key pairs", () =>
+             {
+                 T.Eq(LegacyTvActions.Command("tvplus", "other.app"), null, "ordinary apps are never redirected");
+@@ -139,6 +165,29 @@
+                 finally { Directory.Delete(dir, true); }
+             });
+ 
++            T.Run("Home guard diagnostics: failed closes are captured in a quoted log path", () =>
++            {
++                string dir = Path.Combine(Path.GetTempPath(), "vetro-guard-log-" + Guid.NewGuid().ToString("N"));
++                Directory.CreateDirectory(dir);
++                try
++                {
++                    string tool = Path.Combine(dir, "launcher"), generation = Path.Combine(dir, "generation");
++                    string log = Path.Combine(dir, "diagnostic's log; text");
++                    File.WriteAllText(generation, "7");
++                    File.WriteAllText(tool, "#!/bin/sh\necho 'close failed' >&2\nexit 23\n");
++                    Shell("chmod +x " + Q(tool));
++                    string command = HomeGuard.Command(new[] { "com.samsung.tv.csfs" }, generation, 7, log)
++                        .Replace("/usr/bin/app_launcher", Q(tool)).Replace(" sleep ", " true ");
++                    Shell(command + " wait");
++                    T.Eq(File.ReadAllText(log).Split(new[] { "close failed" }, StringSplitOptions.None).Length - 1,
++                        5, "all failed close attempts retain stderr");
++                    File.Delete(log); File.WriteAllText(generation, "8");
++                    Shell(command + " wait");
++                    T.Eq(File.ReadAllText(log), "", "a retired generation still runs no close action");
++                }
++                finally { Directory.Delete(dir, true); }
++            });
++
+             T.Run("custom launcher mode: only a plain app id becomes the Home target", () =>
+             {
+                 AppEntry e = HomeLaunch.Parse("org.example.projectivy");

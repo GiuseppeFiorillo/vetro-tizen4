@@ -1,0 +1,25 @@
+services:
+  builder:
+    platform: linux/amd64
+    build: .
+    image: vetro-nu7100-build:local
+    network_mode: none
+    volumes:
+      - type: bind
+        source: .
+        target: /work
+        read_only: true
+      - type: bind
+        source: ./out
+        target: /work/out
+      - type: bind
+        source: ./.cache
+        target: /work/.cache
+      - type: bind
+        source: ${VETRO_BUILD_INPUTS:-./inputs}
+        target: /inputs
+        read_only: true
+  source-fetch:
+    extends: builder
+    # Only the explicit immutable GitHub download commands need network access.
+    network_mode: bridge

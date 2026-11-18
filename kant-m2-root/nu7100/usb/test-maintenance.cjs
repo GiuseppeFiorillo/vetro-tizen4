@@ -1,0 +1,6 @@
+'use strict';
+const fs=require('fs'),vm=require('vm'),assert=require('assert'),path=require('path');
+const out=path.join(__dirname,'../out');fs.mkdirSync(out,{recursive:true});
+let command,confirmed=false;
+const sandbox={require:n=>{if(n!=='readline')throw Error('Unexpected module');return {createInterface:()=>({question:(prompt,cb)=>cb('123456'),close:()=>{}})};},process:{argv:['node','maintenance.cjs','192.0.2.1','resume']},console:{log:()=>{},error:e=>{throw Error(e)}},AbortSignal,setTimeout:fn=>{fn();return 0;},fetch:async(url,opt)=>{const route=new URL(url).pathname;let result;if(route==='/auth/pair')result={id:'fixture'};else if(route==='/auth/confirm'){confirmed=true;result={token:'a'.repeat(64)}}else {assert(confirmed);assert.strictEqual(opt.headers.Authorization,'Bearer '+'a'.repeat(64));if(route==='/exec'){command=JSON.parse(opt.body).cmd;result={ok:true,exit_code:0,output:'Resume scheduled'}}else result={self:{uid:5001},agent:{connected:true,uid:0}};}return {ok:true,json:async()=>result};}};
+(async()=>{await vm.runInNewContext(fs.readFileSync(path.join(__dirname,'maintenance.cjs'),'utf8'),sandbox);assert(command);fs.writeFileSync(path.join(out,'maintenance-command.json'),JSON.stringify({command})+'\n');console.log('PASS maintenance uses visible-code pairing and authenticated commands');})().catch(e=>{console.error(e);process.exitCode=1});
