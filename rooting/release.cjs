@@ -10,7 +10,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const updater = require('../app/service/updater.js');
-const { collectIntegration } = require('./build.cjs');
+const { collectChainFiles } = require('../chain/build.cjs');
 
 const sha256 = buf => crypto.createHash('sha256').update(buf).digest('hex');
 
@@ -31,7 +31,7 @@ function keygen(folder) {
 
 function buildBundle(privatePem) {
     const info = {};
-    const all = collectIntegration().map(f => ({ name: decodeURIComponent(f.uri), data: f.data }));
+    const all = collectChainFiles().map(f => ({ name: decodeURIComponent(f.uri), data: f.data }));
     const files = all.filter(f => updater.okPath(f.name));
     const infoFile = files.find(f => f.name === 'service/build-info.js');
     Object.assign(info, updater.parseBuildInfo(infoFile.data));

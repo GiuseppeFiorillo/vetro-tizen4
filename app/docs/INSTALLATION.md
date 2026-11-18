@@ -257,7 +257,10 @@ If it is `false`, the hook did not run. Plug the stick back in, cold-boot with i
 
 ## Updating
 
-**Do not use the in-dashboard updater on this fork.** Its update source and signing key belong to upstream, so an update replaces the Tizen 4 service files with the stock ones and the fork stops working.
+**The dashboard accepts only this fork’s signed releases.** Select **Check for update** to query the `updates` branch of `GiuseppeFiorillo/vetro-tizen4`. Upstream Vetro releases use a different signing key and are rejected. No update is downloaded automatically.
+
+Previously installed builds that still trust upstream must be replaced once with a package containing the fork’s new public key. They cannot accept a new-key update through the old updater. See [updating and publishing releases](UPDATING.md).
+
 
 Update by repeating [2.2](#22-build-the-launcher), [2.3](#23-assemble-and-sign-the-package) and [3.1](#31-install-the-package). The package id is unchanged, so this is an in-place update and your settings stay. The boot hook does not need to be reinstalled unless you moved `/opt/vetro-root`.
 

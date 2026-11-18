@@ -37,6 +37,33 @@ let finished = false;
 process.on('exit', code => { if (code === 0 && !finished) { console.error('FAIL the test ended before its last check ran (a promise never settled)'); process.exit(1); } });
 
 (async () => {
+    response['GET /update'] = {version: '0.5.0', configured: false, source: null, canRollBack: false};
+    await sandbox.loadUpdate();
+    assert.equal(el('checkUpdate').disabled, true);
+    assert.equal(el('applyUpdate').disabled, true);
+    const beforeUpdate = calls.length;
+    el('checkUpdate').onclick();
+    sandbox.updateIndex = {file: 'vetro-update-9.0.0.json', version: '9.0.0', sha256: 'a'.repeat(64)};
+    sandbox.updateArmed = true;
+    el('applyUpdate').onclick();
+    await tick();
+    assert.equal(calls.length, beforeUpdate, 'disabled updates never fetch a list, bundle or apply endpoint');
+    assert.match(el('updateVersion').textContent, /install.*package/i);
+    sandbox.updateIndex = null;
+    const ownSource = 'https://raw.githubusercontent.com/GiuseppeFiorillo/vetro-tizen4/updates/';
+    response['GET /update'] = {version: '0.5.0', shell: 1, configured: true, source: ownSource};
+    response['GET ' + ownSource + 'update-index.json'] = {version: '0.5.1', shell: 1, file: 'vetro-update-0.5.1.json', sha256: 'a'.repeat(64)};
+    await sandbox.loadUpdate();
+    assert.equal(el('checkUpdate').disabled, false);
+    el('checkUpdate').onclick();
+    await tick();
+    assert.equal(fetched(ownSource + 'update-index.json').length, 1);
+    assert.equal(el('applyUpdate').hidden, false);
+    assert.equal(el('applyUpdate').textContent, 'Update to 0.5.1');
+    assert.ok(!calls.some(c => c.url.includes('andrearicci93/vetro/updates')), 'upstream is never contacted');
+    sandbox.updateIndex = null;
+    console.log('PASS fork updates: disabled builds cannot download, configured builds discover only fork releases');
+
     await tick();
 
     // --- Privacy panel: consent rows used a helper that no longer exists ---------------------------------------------------

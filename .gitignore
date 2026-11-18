@@ -55,3 +55,7 @@ __pycache__/
 /private/
 .env*
 !**/.env.example
+
+# Generated update bundles and private release key
+/out/
+update-private.pem

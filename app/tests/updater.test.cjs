@@ -73,7 +73,7 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
     let f = fixture('0.4.0', { port: 9123 });
     await assert.rejects(f.u.apply(bundle('0.4.0', { 'service/a.js': 'x' })), /not newer/);
     await assert.rejects(f.u.apply(bundle('0.3.0', { 'service/a.js': 'x' })), /not newer/);
-    await assert.rejects(f.u.apply(bundle('0.5.0', { 'service/a.js': 'x' }, { shell: 2 })), /Apps2Samsung/);
+    await assert.rejects(f.u.apply(bundle('0.5.0', { 'service/a.js': 'x' }, { shell: 2 })), /Tizen 4 package/);
     await assert.rejects(f.u.apply(bundle('0.5.0', { 'service/a.js': 'x' }), 'f'.repeat(64)), /SHA-256/);
     assert.equal(f.ran.length, 0, 'nothing runs when a check fails');
     assert.equal(f.u.check(bundle('0.4.1', { 'service/a.js': 'new a' })).changed, 1);

@@ -36,7 +36,8 @@ by a paired device. The public list is signed with its own key and spot-checked,
 file is the one the list published, not that its code is safe. Plugins outside the list need Developer mode. Switch on only
 plugins you trust.
 
-Self-update (`app/docs/UPDATING.md`) replaces Vetro's files with the root helper. An update is accepted only if its manifest
+This fork accepts only its own signed update bundles from the configured fork release channel.
+It does not trust upstream’s update key or feed. Self-update (`app/docs/UPDATING.md`) replaces Vetro's files with the root helper. An update is accepted only if its manifest
 is signed with the Vetro release key, whose public half is part of the package; the private key is kept offline and is not
 the plugin list's key.
 

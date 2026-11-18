@@ -975,7 +975,7 @@ bridge.start();
 // Nothing is checked or downloaded here; the dashboard fetches the bundle in the browser and sends it to /update/apply.
 var updater = new Updater({publicKey: require('./update-key.js'), installDir: path.resolve(__dirname, '..'),
     workDir: process.env.VETRO_UPDATE_DIR || '/opt/usr/home/owner/share/vetro-update', buildInfo: buildInfo, execute: agentExecute, dockStopCommand: dock.stopLines(),
-    source: process.env.VETRO_UPDATE_SOURCE || 'https://raw.githubusercontent.com/andrearicci93/vetro/updates/'});
+    source: 'https://raw.githubusercontent.com/GiuseppeFiorillo/vetro-tizen4/updates/'});
 // Once the root agent has connected, a freshly updated version restarts the launcher if the update changed its files,
 // then tells the watchdog it is up (otherwise the old version comes back). The dock is a separate process: a service
 // restart alone leaves it running the old binary.

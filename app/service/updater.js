@@ -159,7 +159,7 @@ Updater.prototype._read = function (raw, expectedSha256) {
     var parsed = verifyBundle(raw, this.publicKey), m = parsed.manifest;
     var order = compare(m.version, this.buildInfo.version || '0.0.0');
     if (order === null) throw fail('Unknown version format');
-    if (m.shell > (this.buildInfo.shell || 1)) throw fail('This version changes the package itself (permissions or service settings): install it again with Apps2Samsung', 'needs-reinstall');
+    if (m.shell > (this.buildInfo.shell || 1)) throw fail('This version changes the package itself (permissions or service settings): install the Tizen 4 package again', 'needs-reinstall');
     parsed.newer = order > 0;
     parsed.files = this._adapt(parsed.files);
     var dir = this.installDir;

@@ -37,7 +37,7 @@ The supported route for the tested Kant-M2 TV is:
 3. Install the package from the root shell and open Vetro on the TV.
 4. Optionally install the [boot hook](kant-m2-root/README.md) to start the daemon on subsequent boots.
 
-Follow the [complete installation and recovery guide](app/docs/INSTALLATION.md). Update this fork by rebuilding and reinstalling your package; the dashboard updater points to upstream and can overwrite the Tizen 4 port. Upstream catalog packages do not include this port. Keep Vetro on a trusted LAN; its dashboard uses HTTP and must not be exposed to the Internet.
+Follow the [complete installation and recovery guide](app/docs/INSTALLATION.md). In-app updates use only this fork’s signed release channel; upstream updates are not accepted. See [updating and publishing releases](app/docs/UPDATING.md). Upstream catalog packages do not include this port. Keep Vetro on a trusted LAN; its dashboard uses HTTP and must not be exposed to the Internet.
 
 The Python and shell host tools are intended for **Linux and macOS**. USB flashing commands differ by host OS and are documented separately. The hardware validation was performed using macOS; Linux host execution has not yet been independently validated. Host operating system and TV compatibility are separate requirements.
 

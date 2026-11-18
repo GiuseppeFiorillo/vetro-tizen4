@@ -1,65 +1,54 @@
-# Updating Vetro without reinstalling
+# Updates for the Tizen 4 fork
 
-[Back to Vetro](../../README.md)
+[Back to Vetro](../../README.md) · [Package installation](INSTALLATION.md#updating)
 
-> **This does not apply to the Tizen 4 fork.** The update source and the signing key belong to upstream, so using **Software update** on a Kant-M2 set replaces the Tizen 4 service files with the stock ones and the fork stops working. Update the fork by rebuilding and reinstalling the package: [Installation guide](INSTALLATION.md#updating).
+## For TV owners
 
-Vetro can update itself from **Quick settings → General → Software update**. You press **Check for update**; the dashboard (in your browser) asks GitHub for the newest signed update, and **Update** sends it to the TV. No computer has to be connected to the TV.
+**Quick settings → General → Software update** checks only this fork’s release channel:
 
-This is a file swap done with the root agent, not a new install. It cannot change what the package declares in `config.xml` (privileges, service flags). When a version does, you install it once more with the installation procedure for your TV (upstream: Apps2Samsung).
+`https://raw.githubusercontent.com/GiuseppeFiorillo/vetro-tizen4/updates/`
 
-## What an update covers
+The dashboard checks when you press **Check for update**. It offers newer compatible versions, asks for confirmation, and the service verifies the bundle against this fork’s public key before applying it. Updates signed by upstream or any other key are rejected, including direct API submissions. A missing release index means no update has been published yet.
 
-Everything Vetro ships except `config.xml`: the service and dashboard (`service/`), the **launcher** (`native/dock/`: the program and its pictures), `native/TvState.dll`, the root helpers (`payload/`, picked up when the service starts again), `index.html` and the icon. Plugins and settings live outside the package and stay.
+**Existing installations need one package reinstall.** Builds that still trust upstream have the old public key. Install a package built from this fixed source with the same Samsung signing identity to switch them to the fork’s channel. Updating the GitHub repository alone does not change an installed TV.
 
-The launcher is a separate program that keeps running the old version when the service restarts, so an update that changed its files restarts it: if the launcher is on, the new version starts it again and only then confirms itself. If the launcher will not start, the update is not confirmed and the watchdog puts back all the files, the launcher's included, and stops the new launcher so the old one starts again. A launcher that is off is simply updated for the next time you turn it on.
+Update settings and the existing recovery/rollback mechanism are preserved. If a release changes `config.xml`, increase `shell` and distribute a new WGT instead of relying on a file swap.
 
-## How it stays safe
+## Signing key
 
-- **Signed.** An update is a text file whose manifest is signed (RSA-SHA256) with the maintainer's offline key. The public key is part of the package (`app/service/update-key.js`). The TV refuses anything else, wherever it came from. A hacked GitHub account alone cannot push code to your TV.
-- **Checked twice.** The service verifies the signature and every file's SHA-256 against the manifest. The root script checks each staged file again just before copying it.
-- **Limited.** Only `service/*.js`, `native/`, `payload/`, `index.html` and `icon.png` can be replaced. Paths with `..` are refused.
-- **Reversible.** The files being replaced are saved first. If the new version has not confirmed itself within 4 minutes (it does so once the root agent has connected), a watchdog started by the update puts the old files back and restarts. **Go back to the previous version** does the same by hand.
-- **Your settings stay.** The dashboard port chosen at install time is kept; rules, DNS and plugin settings live outside the package.
-- **Nothing runs by itself.** Nothing contacts GitHub unless you press the button.
+This fork has its own update public key in `app/service/update-key.js`. Its private key is stored outside the repository. On the maintainer’s current computer:
 
-## Publishing a release (maintainer)
-
-```sh
-# once: make the key pair, keep update-private.pem offline, paste the public key into app/service/update-key.js
-node rooting/release.cjs keygen ~/vetro-keys
-
-# per release: bump the version in app/config.xml, app/package.json and app/service/build-info.js, then
-VETRO_UPDATE_KEY=~/vetro-keys/update-private.pem node rooting/release.cjs build /tmp/vetro-update
+```text
+~/.config/vetro-tizen4/update-keys/update-private.pem
 ```
 
-This writes `vetro-update-<version>.json` (about 1.4 MB) and `update-index.json`. Publish both in the folder the dashboard reads (`VETRO_UPDATE_SOURCE`, default the `updates` branch of the repository on `raw.githubusercontent.com`, which allows browser downloads). Raise `shell` in `app/service/build-info.js` whenever `config.xml` changes.
+Back up this private key securely outside Git. It is different from Samsung’s author/distributor certificates. Keeping the same public key lets installed TVs accept future signed releases; losing the private key requires a new package installation to change the trusted key.
 
-An installed Vetro can take updates only if its package already contained the key: the first release with this feature has to be installed the usual way.
+For a new independent fork, generate your own pair with `node rooting/release.cjs keygen /path/outside/the/repository`, then put only its public PEM into `app/service/update-key.js`. Do not replace an existing production key casually.
 
-## Measured on the Q80A (2026-10-30, firmware 2310.0, Node 12.4)
+## Build an update
 
-- `sha256sum`, `curl` (7.68, OpenSSL 1.1.1w, certificates verified), `setsid`, `nohup`, `base64` and `cp`/`mv` exist. `wget` does not. `curl` reaches `raw.githubusercontent.com`, `api.github.com` and `github.com` from the TV in 0.2 to 0.8 s, so a download made by the TV itself is possible.
-- The install folder `/opt/usr/apps/vetrotvapp/res/wgt` is owned by `tizenglobalapp` and writable by the root agent only (the service runs as `owner`). It is on a read-write filesystem. Copy, `chmod` and `mv -f` over an existing file work.
-- `app_launcher -k vetrotvapp.svc` is enough to restart the service: a new process was up and answering in about 3 s, and the root agent was connected again right after.
-- **The TV refuses to run a shell script file that is not signed** (`[uep][bash] the file is NOT signed!!`), also with `sh file`; `sh -c "<text>"` works. The updater therefore never writes a script and runs it: the watchdog and the restart are passed inline, as base64 (`updater.js`, `detached()`). This was found on the TV; a first version wrote the watchdog to `/tmp` and would have failed.
-- `printf '%s\n'` printed a literal `\n` through the root agent; the updater uses `echo`.
-- The generated apply script was run on the TV's own shell against a throw-away folder in `/tmp`: hashes checked, files replaced, a new file added, old ones backed up, and with no confirmation the inline watchdog put everything back and restarted.
-- Replaced `.js` files do run: the installed service was started from files swapped by hand after the install (dashboard.js, build-info.js, ...), so the UEP does not block `require`d files.
+From the repository root:
 
-## End-to-end test on the Q80A (2026-10-30)
+1. Run the tests. If C# sources changed, run `sh dock/build.sh` first.
+2. Increase the version consistently in `app/config.xml`, `app/package.json`, and `app/service/build-info.js`. The next version after `0.5.0` can be `0.5.1`.
+3. Build the signed update with your private key:
 
-Run against the real installation, with a throw-away test key (the TV was put back byte for byte afterwards).
+```sh
+VETRO_UPDATE_KEY="$HOME/.config/vetro-tizen4/update-keys/update-private.pem"   node rooting/release.cjs build out/updates
+```
 
-1. **First swap** (0.4.0 to 0.4.1, five files, driven from a computer because the installed version had no updater): the service came back in the new version, the root agent reconnected, the version confirmed itself and the watchdog stood down.
-2. **Update through the TV's own `/update` endpoints** (0.4.1 to 0.4.2, a `.js` and a `.dll`): a wrong SHA-256 and a tampered file were refused, the signed bundle (1.37 MB) was accepted and applied, the service was back in about 20 seconds with `last.state = updated`. The modified `TvState.dll` ran normally.
-3. **An update that cannot start** (0.4.3 with a syntax error in `main.js`): Vetro was down from 16:50:03; the watchdog restored the previous files and restarted the service at about 16:53:57 (3 min 54 s), the dashboard reported `last.state = rolled-back`, and the broken file was gone.
+The builder uses `chain/build.cjs`, preserving the Tizen 4 adapter and launcher. It verifies its output and refuses a key that does not match the public key in the package. It writes two public files:
 
-Found while testing: a failed hash check stops the script before anything is replaced (fail closed); `/exec` accepts bodies up to 64 KiB only; a process search by text (`pkill -f`) also matches the script that runs it.
+- `vetro-update-VERSION.json`: signed bundle.
+- `update-index.json`: version, filename, size and SHA-256.
 
-## Still not measured
+No Samsung certificate or private update key is included in these files.
 
-- **A reboot after a swap.** The swapped files on the test TV all date from after its last boot, and the test did not restart the whole TV.
-- **Replacing a `.dll` in `payload/`** (the root helpers). `native/TvState.dll` was replaced and ran; the root chain was not touched.
-- The dashboard buttons themselves (the flow above was driven by script) and the real release key.
-- The dashboard downloading from GitHub in a browser (CORS on the chosen source).
+## Publish on GitHub
+
+Publish **both generated JSON files at the root of the `updates` branch** in `GiuseppeFiorillo/vetro-tizen4`. Create that branch the first time; subsequent releases use the same branch. GitHub’s **Add file → Upload files** can be used on that branch. Upload the versioned bundle before, or in the same commit as, the new index. A GitHub Release attachment alone is not the configured update feed.
+
+Keep older versioned bundles available. Never upload `update-private.pem`. Source commits on `main` do not publish a dashboard update: only the signed files in `updates` do.
+
+The version must be newer than the installed version. A higher `shell` requires a WGT reinstall; the updater cannot change package privileges or service declarations. The persistent root daemon in `/opt/vetro-root/` and the boot hook are not replaced by the dashboard update: releases changing those components need their separate installation procedure.
