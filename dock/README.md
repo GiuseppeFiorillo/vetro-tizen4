@@ -17,7 +17,7 @@ from the TV at start-up, and ends with two outline pills, Settings and Samsung H
 
 The Samsung Home pill uses the original upstream `app_launcher -s` request, with the existing fallback for firmware that defines one. On the tested Tizen 4 TV this programmatic launch is not reliable. Timing retries, forced user/environment settings and HbbTV workarounds are not included. Leave the launcher disabled when you need the normal Samsung Home key.
 
-## Optional Home-guard diagnostics
+## Optional Home-guard diagnostics for Kant-M2 (T-KTM2)
 
 For a controlled launcher diagnostic, pass `--debug-guard` together with the
 existing `--kill-on-home` option. This records guard dispatch status and generation
@@ -33,7 +33,7 @@ cancellation, and is not by itself a fix for overlapping Home windows.
 
 This change was extracted from a local compatibility build used on UE65NU7100 /
 T-KTM2LDEUC-1400.2. Its isolated shell tests run on a host; this does not establish
-Home compatibility on other TVs.
+Home compatibility on other Kant-M2 models, which remain untested.
 
 ## Layout
 
