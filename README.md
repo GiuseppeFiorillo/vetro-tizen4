@@ -4,7 +4,7 @@
 
 A fork of [Vetro](https://github.com/andrearicci93/vetro) for Samsung's 2018 Kant-M2 TVs. Manage installed apps, privacy settings and remote shortcuts from a browser, with an optional lightweight launcher and a root daemon that can start automatically with the TV.
 
-This fork has been tested on **Samsung QE49Q6FNA, Tizen 4, firmware T-KTM2DEUC-1400.2**. Other Tizen 4 models and firmware versions have not been validated. For newer TVs, start with the [upstream project](https://github.com/andrearicci93/vetro).
+This fork has been tested on **Samsung QE49Q6FNA, Tizen 4, firmware T-KTM2DEUC-1400.2**. Other Tizen 4 models and firmware versions have not been validated. For newer TVs, start with the [upstream compatibility reports](https://github.com/andrearicci93/vetro#compatibility), including the Q60B startup findings and community model reports. Upstream currently has no root method for Tizen 10; this fork’s Kant-M2 USB route does not add support for it.
 
 [Installation](app/docs/INSTALLATION.md) · [Root persistence](kant-m2-root/README.md) · [Development](docs/DEVELOPMENT.md) · [Security](SECURITY.md)
 

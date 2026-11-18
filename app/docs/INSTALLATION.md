@@ -240,12 +240,14 @@ If it does not, see [troubleshooting](#if-the-root-agent-is-not-connected). Do n
 
 1. Remove the USB stick if it is still inserted.
 2. Unplug the TV for 30 seconds and power it on **without** the stick.
-3. Wait up to 90 seconds.
+3. Allow time for startup; 90 seconds is not a universal deadline.
 4. Open `http://TV_IP:8099/status` without opening Vetro first.
 
 If `agent.connected` is `true` with uid 0, root now comes back at every boot without the USB stick. That is the whole point of the add-on.
 
-If it is `false`, the hook did not run. Plug the stick back in, cold-boot with it, and read `/opt/vetro-root/boot.log` and `/opt/vetro-root/daemon.log` from the root shell. A restored or replaced `parseinfo.sh` is the usual cause.
+Check the service, root agent and launcher separately: a reachable `/status` does not prove the root daemon is connected or the launcher is running. Keep boot identifiers private. If you open Vetro manually, that run no longer proves automatic startup. Upstream measured about 100 seconds for one Q60B software restart; that is a different TV and root route, not a startup bound for this port.
+
+If it remains `false`, investigate the hook and daemon. Plug the stick back in, cold-boot with it, and read `/opt/vetro-root/boot.log` and `/opt/vetro-root/daemon.log` from the root shell. A restored or replaced `parseinfo.sh` is the usual cause.
 
 > **The first root always needs the USB.** The hook can only be installed from an existing root shell, and it does not create root by itself. Without the hook, the stick is required at every cold boot.
 
@@ -290,9 +292,9 @@ Open `http://TV_IP:8099/status` and read these fields:
 | --- | --- | --- |
 | `"mode": "app-only"` | The installed package has no Tizen 4 integration: it is the upstream or prebuilt build. | Install the package you built in [2.3](#23-assemble-and-sign-the-package). Apps2Samsung cannot install this fork. |
 | `"mode": "tv-integration"`, `"agent": {"connected": false}` | Vetro is running but the root daemon is not. | Install the boot hook ([3.3](#33-install-the-boot-hook)), or start the daemon from a root shell. Check `/opt/vetro-root/daemon.log`. |
-| The page does not load at all | The background service is not running. | Open **Vetro** on the TV once, wait 10 seconds, reload. Confirm `vetrotvapp` with `pkgcmd -l`. |
+| The page does not load at all | The background service may still be starting or may have failed. | Allow for startup, then open **Vetro** once if it remains unavailable; record this manual launch when testing automatic recovery. Confirm `vetrotvapp` with `pkgcmd -l`. |
 | `agent.connected` is true after a cold boot with no USB | The boot hook works. | Nothing to do. |
-| `agent.connected` is false after a cold boot with no USB | The hook did not run, or `parseinfo.sh` was replaced. | Cold-boot with the USB stick and read `/opt/vetro-root/boot.log`; reinstall the hook if needed. |
+| `agent.connected` stays false after a cold boot with no USB | The daemon has not connected; the hook may have failed or `parseinfo.sh` may have been replaced. | Cold-boot with the USB stick and read `/opt/vetro-root/boot.log`; reinstall the hook if needed. |
 | `pkgcmd` returns a certificate or signature error | The TV does not trust the signing profile. | Re-sign with your own author/distributor certificate; do not reuse a downloaded package. |
 | Install succeeds but the dashboard is unreachable | The port changed or another app owns it. | Rebuild with `VETRO_PORT=9000` and try `http://TV_IP:9000/`. |
 | The launcher says it is not in this package | The package was built without the dock files. | Run `dock/build.sh` before `chain/build.cjs`, then reinstall. |
