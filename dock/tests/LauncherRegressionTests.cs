@@ -21,6 +21,39 @@ namespace Launcher.Tests
 
         public static void Run()
         {
+            T.Run("legacy streaming: web tiles use native runtime and owner identity", () =>
+            {
+                string dir = Path.Combine(Path.GetTempPath(), "vetro-streaming-" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(dir);
+                try
+                {
+                    string tool = Path.Combine(dir, "launcher"), log = Path.Combine(dir, "calls");
+                    File.WriteAllText(tool, "#!/bin/sh\nprintf '%s\\n' \"$*\" >> " + Q(log) + "\n");
+                    Shell("chmod +x " + Q(tool));
+                    string[] ids = { "9Ur5IzDKqV.TizenYouTube", "com.samsung.tv.cobalt-yt", "RN1MCdNq8t.Netflix", "org.tizen.netflix-app" };
+                    foreach (string id in ids)
+                    {
+                        string command = LegacyTvActions.Command("tile", id);
+                        T.True(command != null, "known streaming app has a native launch command");
+                        command = command.Replace("/usr/bin/app_launcher", Q(tool))
+                            .Replace("/home/owner/tvlauncher-system-launch.log", Q(Path.Combine(dir, "output")));
+                        Shell(command + " wait");
+                    }
+                    string[] calls = File.ReadAllLines(log);
+                    T.Eq(calls.Length, 4, "one native launch per activation");
+                    T.Eq(calls[0], "-s com.samsung.tv.cobalt-yt -u 5001", "web YouTube uses native owner session");
+                    T.Eq(calls[1], calls[0], "native YouTube also keeps owner identity");
+                    T.Eq(calls[2], "-s org.tizen.netflix-app -u 5001", "web Netflix uses native owner runtime");
+                    T.Eq(calls[3], calls[2], "native Netflix also keeps owner identity");
+                }
+                finally { Directory.Delete(dir, true); }
+            });
+            T.Run("legacy streaming: only exact known app IDs are redirected", () =>
+            {
+                foreach (string id in new[] { null, "", "other.app", "evKhCgZelL.AmazonIgnitionLauncher2",
+                    "9Ur5IzDKqV.TizenYouTube.extra", "RN1MCdNq8t.Netflix;bad", "org.tizen.netflix-app extra" })
+                    T.Eq(LegacyTvActions.Command("netflix", id), null, "display slug never redirects an unrelated app");
+            });
             T.Run("legacy TV actions: separate tuner and TV Plus, native key pairs", () =>
             {
                 T.Eq(LegacyTvActions.Command("tvplus", "other.app"), null, "ordinary apps are never redirected");
