@@ -20,7 +20,7 @@ namespace Launcher.Core
                 (Array.IndexOf(ids, appId) >= 0 || appId == "com.samsung.tv.coba.newhome");
         }
 
-        public static string Command(string[] ids, string file, int generation)
+        public static string Command(string[] ids, string file, int generation, string logFile = null)
         {
             if (ids == null || ids.Length == 0 || !Array.TrueForAll(ids, Catalog.ValidAppId))
                 throw new ArgumentException("Invalid Home app ids");
@@ -34,7 +34,9 @@ namespace Launcher.Core
                     command.Append(" [ \"$(cat ").Append(quotedFile).Append(")\" = ").Append(gen)
                         .Append(" ] || exit 0; /usr/bin/app_launcher -k ").Append(id).Append(';');
             }
-            return command.Append(" ) >/dev/null 2>&1 &").ToString();
+            if (logFile == null) return command.Append(" ) >/dev/null 2>&1 &").ToString();
+            return command.Append(" ) >>'").Append(logFile.Replace("'", "'\"'\"'"))
+                .Append("' 2>&1 &").ToString();
         }
     }
 

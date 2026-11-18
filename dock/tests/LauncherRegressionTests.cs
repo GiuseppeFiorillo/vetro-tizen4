@@ -139,6 +139,31 @@ namespace Launcher.Tests
                 finally { Directory.Delete(dir, true); }
             });
 
+            T.Run("Home guard diagnostics: failed closes are captured in a quoted log path", () =>
+            {
+                T.True(HomeGuard.Command(new[] { "com.samsung.tv.csfs" }, "/tmp/guard", 7)
+                    .EndsWith(" ) >/dev/null 2>&1 &"), "diagnostics stay off by default");
+                string dir = Path.Combine(Path.GetTempPath(), "vetro-guard-log-" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(dir);
+                try
+                {
+                    string tool = Path.Combine(dir, "launcher"), generation = Path.Combine(dir, "generation");
+                    string log = Path.Combine(dir, "diagnostic's log; text");
+                    File.WriteAllText(generation, "7");
+                    File.WriteAllText(tool, "#!/bin/sh\necho 'close failed' >&2\nexit 23\n");
+                    Shell("chmod +x " + Q(tool));
+                    string command = HomeGuard.Command(new[] { "com.samsung.tv.csfs" }, generation, 7, log)
+                        .Replace("/usr/bin/app_launcher", Q(tool)).Replace(" sleep ", " true ");
+                    Shell(command + " wait");
+                    T.Eq(File.ReadAllText(log).Split(new[] { "close failed" }, StringSplitOptions.None).Length - 1,
+                        5, "all failed close attempts retain stderr");
+                    File.Delete(log); File.WriteAllText(generation, "8");
+                    Shell(command + " wait");
+                    T.Eq(File.ReadAllText(log), "", "a retired generation still runs no close action");
+                }
+                finally { Directory.Delete(dir, true); }
+            });
+
             T.Run("custom launcher mode: only a plain app id becomes the Home target", () =>
             {
                 AppEntry e = HomeLaunch.Parse("org.example.projectivy");
