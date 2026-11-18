@@ -2,7 +2,7 @@ services:
   builder:
     platform: linux/amd64
     build: .
-    image: vetro-nu7100-build:local
+    image: vetro-standalone-usb-build:local
     network_mode: none
     volumes:
       - type: bind

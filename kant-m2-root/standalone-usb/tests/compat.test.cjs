@@ -1,11 +1,11 @@
 'use strict';
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('fs'),path=require('path'),cp=require('child_process'),crypto=require('crypto');
 const adapter=require('../lib/standalone.cjs'),{build,nativeCheck}=require('../tools/build-payload.cjs'),root=adapter.root;
-const python=process.env.PYTHON||'python',archive=path.resolve(process.env.VETRO_TIZEN4_ARCHIVE||path.join(root,'../analysis/vetro-tizen4.zip'));
+const python=process.env.PYTHON||'python3',archive=path.resolve(process.env.VETRO_TIZEN4_ARCHIVE||path.join(root,'.cache/tizen4-'+require('../sources.lock.json').sources.tizen4.commit+'.zip'));
 const out=path.join(root,'out');fs.mkdirSync(out,{recursive:true});const lab=fs.mkdtempSync(path.join(out,'checks-')),source=path.join(lab,'source'),sha=p=>crypto.createHash('sha256').update(fs.readFileSync(p)).digest('hex');
 function prepare(input,dest){return cp.spawnSync(python,[path.join(root,'tools/prepare.py'),'--archive',input,'--output',dest],{encoding:'utf8',windowsHide:true});}
 test('pinned archive produces patched staging sources without modifying the archive',()=>{
- const before=sha(archive),r=prepare(archive,source);assert.equal(r.status,0,r.stderr);assert.equal(sha(archive),before);const m=JSON.parse(fs.readFileSync(path.join(source,'nu7100-source.json')));assert.equal(m.sourcePinned,true);assert.equal(m.patchesApplied,4);assert.equal(m.nativeBuildRequired,false);
+ const before=sha(archive),r=prepare(archive,source);assert.equal(r.status,0,r.stderr);assert.equal(sha(archive),before);const m=JSON.parse(fs.readFileSync(path.join(source,'standalone-source.json')));assert.equal(m.sourcePinned,true);assert.equal(m.patchesApplied,4);assert.equal(m.nativeBuildRequired,false);
 });
 test('source-first build exactly reproduces all104 installed payload files',()=>{
  const report=build(source,path.join(lab,'payload')),reference=require('../reference-payload.json').files;assert.equal(Object.keys(report.files).length,104);assert.deepEqual(report.files,reference);

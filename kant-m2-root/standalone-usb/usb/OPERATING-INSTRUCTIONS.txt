@@ -1,4 +1,4 @@
-Vetro USB kit -- tested candidate, UE65NU7100 / 1400.2
+Vetro Kant-M2 standalone USB kit -- tested reference candidate
 
 This contains the EXACT logged installer image that succeeded on the owner's
 factory-reset TV, with Developer Mode OFF, on 2026-11-18. No PC listener, SDB,
@@ -6,8 +6,8 @@ developer certificate or existing Vetro install was used. Root, the homescreen,
 two USB-free cold boots, automatic rearming, pairing, and USB recovery retaining
 paired maintenance access passed. The TV was restored to normal standalone mode.
 
-EXACT TARGET ONLY
-Samsung UE65NU7100, T-KTM2LDEUC-1400.2, BUILD_ID
+TESTED CONFIGURATION AND FIRMWARE PROFILE
+End-to-end tested only on Samsung UE65NU7100, T-KTM2LDEUC-1400.2, BUILD_ID
 T-KTM2LDEUC-REL-202606052034, Linux4.1.10. The trigger uses fixed kernel addresses
 BEFORE installer compatibility checks. Other models/firmware are untested.
 Do not update or reflash firmware for this kit. It refuses existing root folders
@@ -63,6 +63,6 @@ image/FAT/manifest validation and writer compilation passed before hardware use.
 104 installed static files matched the payload. Details: VALIDATION.json and
 STAGE-CHECKS.json. Corresponding sources/licenses are included in SOURCE/LICENSES.
 This source build reproduces the logged INSTALL.img and RECOVERY.img hashes.
-Read the accompanying nu7100 README for the self-contained build and its limits.
+Read the accompanying standalone USB README for the self-contained build and its limits.
 The FAT volume retains its historical candidate README for exact image parity;
 these OPERATING-INSTRUCTIONS take precedence for the tested logged variant.

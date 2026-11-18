@@ -4,7 +4,7 @@
 
 A fork of [Vetro](https://github.com/andrearicci93/vetro) for Samsung's 2018 Kant-M2 TVs. Manage installed apps, privacy settings and remote shortcuts from a browser, with an optional lightweight launcher and a root daemon that can start automatically with the TV.
 
-This fork has been tested on **Samsung QE49Q6FNA, Tizen 4, firmware T-KTM2DEUC-1400.2**. Other Tizen 4 models and firmware versions have not been validated. For newer TVs, start with the [upstream compatibility reports](https://github.com/andrearicci93/vetro#compatibility), including the Q60B startup findings and community model reports. Upstream currently has no root method for Tizen 10; this fork’s Kant-M2 USB route does not add support for it.
+This fork's original hardware validation used **Samsung QE49Q6FNA, Tizen 4, T-KTM2DEUC-1400.2**. The optional standalone USB implementation has separate end-to-end evidence from **UE65NU7100 / T-KTM2LDEUC-1400.2**. Both belong to the Kant-M2 (T-KTM2) family; tested model names record evidence rather than a model-name allowlist. Other variants remain untested. For newer TVs, start with the [upstream compatibility reports](https://github.com/andrearicci93/vetro#compatibility), including the Q60B startup findings and community model reports. Upstream currently has no root method for Tizen 10; this fork’s Kant-M2 USB route does not add support for it.
 
 [Installation](app/docs/INSTALLATION.md) · [Root persistence](kant-m2-root/README.md) · [Development](docs/DEVELOPMENT.md) · [Security](SECURITY.md)
 
@@ -30,10 +30,10 @@ The boot hook has been observed starting the root daemon after a cold boot witho
 
 ## Installation
 
-An optional [NU7100 standalone USB reference](kant-m2-root/nu7100/README.md) is
-available for draft review. It is restricted to **UE65NU7100 / T-KTM2LDEUC-1400.2**,
-exact build `T-KTM2LDEUC-REL-202606052034`; other models are unsupported. Its source
-build reproduces the logged installer and recovery images tested on that device,
+An optional [Kant-M2 standalone USB installer](kant-m2-root/standalone-usb/README.md) is
+available for draft review. It has only been tested end-to-end on **UE65NU7100 /
+T-KTM2LDEUC-1400.2**, build `T-KTM2LDEUC-REL-202606052034`; other Kant-M2 models
+are untested. Its included firmware/kernel profile reproduces the images tested on that device,
 requires the owner's hash-checked original startup-script input, and does not
 modify the default installation route below. Read its limitations before use.
 

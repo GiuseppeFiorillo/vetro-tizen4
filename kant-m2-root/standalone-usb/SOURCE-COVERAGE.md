@@ -1,7 +1,7 @@
 # Published source coverage
 
 This optional directory contains the reusable implementation of the working
-NU7100 setup. The original research workspace is not required to rebuild it.
+Kant-M2 setup, tested on UE65NU7100. The original research workspace is not required to rebuild it.
 
 | Working component | Published source |
 | --- | --- |
@@ -19,6 +19,9 @@ NU7100 setup. The original research workspace is not required to rebuild it.
 | Read-only installation diagnostics | `usb/read-result.py`, bounded regular-file/image inputs only |
 | Source bundles and provenance | `tools/bundle-kit.py`, source/native/reference manifests and license notices |
 | Host validation | `tests/`, `usb/test-*`, fixture runner, pinned tool image and CI job |
+| Static firmware/kernel comparison | `tools/verify-firmware.cjs`, regular files only |
+| Selective offline firmware reading | `tools/vdfs-reader.cjs`, explicit extraction into ignored directories only |
+| Source privacy audit | `tools/audit-source.cjs`, redacted findings and optional private denylist |
 
 Historical live-TV probe scripts, abandoned reverse-shell/developer-mode setup,
 one-off deployment commands, emulator experiments and reset/cleanup operations
@@ -27,6 +30,6 @@ represented by the source above or remains explicitly unvalidated research. They
 are not added to normal installation or CI. Personal diagnostics, firmware
 images, signing material and paired credentials remain outside the source tree.
 
-This is an exact-target reference implementation for maintainer review, not an
-automatic extension of support to every Tizen 4 TV. The root dependency retains
+This is a Kant-M2 implementation for maintainer review with an explicit tested
+firmware/kernel profile. Other Kant-M2 models remain untested. The root dependency retains
 its separate AGPL license. See `LICENSES.md` and `README.md`.

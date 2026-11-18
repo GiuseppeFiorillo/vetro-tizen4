@@ -1,9 +1,9 @@
 'use strict';
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('fs'),path=require('path'),os=require('os');
 const target=require('../tools/target.cjs');
-test('build target accepts only our exact model and firmware',()=>{
- target.target('UE65NU7100','T-KTM2LDEUC-1400.2');
- for(const [model,firmware]of [['QE49Q6FNA','T-KTM2LDEUC-1400.2'],['UE65NU7100','T-KTM2DEUC-1400.2'],['UE65NU7100','1400.2'],['UE65NU7100','T-KTM2LDEUC-1500.0']])assert.throws(()=>target.target(model,firmware),/Only UE65NU7100/);
+test('build selection uses firmware profile rather than a model-name allowlist',()=>{
+ target.target('ktm2ldeuc-1400.2','T-KTM2LDEUC-1400.2');
+ for(const [profile,firmware]of [['unknown','T-KTM2LDEUC-1400.2'],['ktm2ldeuc-1400.2','T-KTM2DEUC-1400.2'],['ktm2ldeuc-1400.2','1400.2'],['ktm2ldeuc-1400.2','T-KTM2LDEUC-1500.0']])assert.throws(()=>target.target(profile,firmware),/firmware\/kernel profile/);
 });
 test('missing or wrong owner-supplied vendor bytes are rejected',t=>{
  const previous=process.env.VETRO_VENDOR_SCRIPT,dir=fs.mkdtempSync(path.join(os.tmpdir(),'vetro-vendor-'));

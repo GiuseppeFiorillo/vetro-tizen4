@@ -13,13 +13,13 @@ function nativeCheck(source,manifestDir=path.join(root,'native')){
  return m;
 }
 function build(source,output,manifestDir){
- target.target(profile.model,profile.firmware);
+ target.target(profile.id,profile.firmware);
  const vendor=target.vendor();
  function rootFile(n){if(n==='vendor-original')return vendor;const b=fs.readFileSync(path.join(root,'overlay/root',n));return n==='hook.awk'?Buffer.from(adapter.once(b.toString(),'{{VENDOR_BASE64}}',vendor.toString('base64'),'vendor restore template')):b;}
  source=path.resolve(source);output=path.resolve(output);
- if(!output.startsWith(path.join(root,'out')+path.sep))throw Error('Build output must stay under vetro-nu7100/out');
+ if(!output.startsWith(path.join(root,'out')+path.sep))throw Error('Build output must stay under standalone-usb/out');
  if(fs.existsSync(output))throw Error('Build output already exists; choose a new staging directory');
- const sourceInfo=JSON.parse(fs.readFileSync(path.join(source,'nu7100-source.json'))),native=nativeCheck(source,manifestDir);
+ const sourceInfo=JSON.parse(fs.readFileSync(path.join(source,'standalone-source.json'))),native=nativeCheck(source,manifestDir);
  if(sourceInfo.nativeBuildRequired&&(!manifestDir||path.resolve(manifestDir)===path.join(root,'native')))throw Error('Candidate needs an explicit native rebuild');
  const nativeDir=manifestDir||path.join(root,'native'),core={};
  // Do not let an enclosing adapter Git repository masquerade as upstream HEAD,
@@ -58,7 +58,7 @@ function build(source,output,manifestDir){
  const combined=adapter.once(old,'    exit 0\n}',`    system(${JSON.stringify(call)})\n    exit 0\n}`,'vendor-first boot extension');
  payload['root/hook.awk']=Buffer.from(combined);const c=JSON.parse(fs.readFileSync(path.join(root,'overlay/root/config.json')));c.hookHash=hash(combined);c.hashes[c.template]=hash(combined);payload['root/config.json']=Buffer.from(JSON.stringify(c,null,2)+'\n');
  const files={};for(const n of Object.keys(payload).sort()){if(n.endsWith('.js'))new vm.Script(payload[n].toString(),{filename:n});const p=path.join(output,n);fs.mkdirSync(path.dirname(p),{recursive:true});fs.writeFileSync(p,payload[n]);files[n]=hash(payload[n]);}
- const provenance={profile:profile.id,compatLayerVersion:require('../package.json').version,profileSha256:hash(fs.readFileSync(path.join(root,'profiles/ue65nu7100-1400.2.json'))),patches:require('../patches/series.json'),source:sourceInfo,upstream:require('../sources.lock.json').sources.upstream,nativeArtifacts:native.artifacts,files};
+ const provenance={profile:profile.id,compatLayerVersion:require('../package.json').version,profileSha256:hash(fs.readFileSync(path.join(root,'profiles/ktm2ldeuc-1400.2.json'))),patches:require('../patches/series.json'),source:sourceInfo,upstream:require('../sources.lock.json').sources.upstream,nativeArtifacts:native.artifacts,files};
  fs.writeFileSync(output+'.provenance.json',JSON.stringify(provenance,null,2)+'\n');return provenance;
 }
 if(require.main===module){try{const args=process.argv.slice(2),at=n=>{const i=args.indexOf(n);return i<0?undefined:args[i+1]};const x=build(at('--source')||path.join(root,'out/prepared'),at('--output')||path.join(root,'out/source-payload'),at('--native'));console.log(JSON.stringify({files:Object.keys(x.files).length,sourceCommit:x.source.sourceCommit,profile:x.profile,nativeRecompiled:false},null,2));}catch(e){console.error(e.message);process.exitCode=1;}}

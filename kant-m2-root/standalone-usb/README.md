@@ -1,10 +1,11 @@
-# NU7100 standalone Vetro and USB installer
+# Kant-M2 standalone Vetro and USB installer
 
-**Draft, exact-target reference implementation:** UE65NU7100,
-T-KTM2LDEUC-1400.2, BUILD_ID `T-KTM2LDEUC-REL-202606052034`, Linux 4.1.10.
-No other model or firmware is supported by this package. The USB trigger uses
-fixed kernel addresses **before** installer compatibility checks can execute.
-A matching software version alone does not make another model compatible.
+**Draft implementation for Samsung's Kant-M2 (T-KTM2) platform.** End-to-end
+testing has only been performed on **UE65NU7100 / T-KTM2LDEUC-1400.2**, build
+`T-KTM2LDEUC-REL-202606052034`, Linux 4.1.10. Other Kant-M2 models are untested.
+The builder selects a firmware/kernel profile, not a model-name allowlist.
+The included profile reproduces that tested build; the USB trigger uses fixed
+kernel addresses before installer checks, so firmware/profile matching matters.
 
 This directory contains the full standalone runtime, pairing-display source,
 root supervision/rearming code, source adapters, USB installer, image builder,
@@ -63,7 +64,7 @@ run with network disabled and source/input mounts read-only.
    PowerShell and Unix shells):
 
    ```sh
-   docker compose run --rm builder python3 tools/build-kit.py --model UE65NU7100 --firmware T-KTM2LDEUC-1400.2 --vendor-script /inputs/parseinfo.sh --vetro-archive .cache/tizen4-3ecb6856ae253fa8df8aa23ecd4bb17102f08046.zip --usb-root-archive .cache/usbRoot-0c9d176c4f7c5f1822db7663002dda32dde673c0.zip --output out/rebuild
+   docker compose run --rm builder python3 tools/build-kit.py --profile ktm2ldeuc-1400.2 --firmware T-KTM2LDEUC-1400.2 --vendor-script /inputs/parseinfo.sh --vetro-archive .cache/tizen4-3ecb6856ae253fa8df8aa23ecd4bb17102f08046.zip --usb-root-archive .cache/usbRoot-0c9d176c4f7c5f1822db7663002dda32dde673c0.zip --output out/rebuild
    ```
 
    The command validates source locks, patches and native fingerprints, builds
@@ -83,7 +84,9 @@ Expected image SHA-256:
 The FAT payload's `README.TXT` and `PACKAGE.JSON` retain their historical candidate
 text for exact image parity. **OPERATING-INSTRUCTIONS.txt takes precedence** for
 the tested logged variant. Current build/hardware evidence is separate from those
-legacy bytes; a local rebuild does not count as another hardware test.
+legacy bytes; a local rebuild does not count as another hardware test. Historical
+NU7100 package labels and deployment comments remain inside the replayed bytes
+to preserve image hashes; they are not a model-name restriction in the builder.
 
 To make a deterministic local ZIP including corresponding source and both public
 dependency archives:
@@ -131,6 +134,37 @@ reads existing regular files only; it never opens a raw device. On Windows,
 or opening a disk. These helpers and the source coverage map are included here.
 These checks do not emulate the TV kernel or replace profile-specific hardware
 acceptance. The existing root-marker fixtures also remain under the parent tests.
+
+## Offline firmware assessment and privacy checks
+
+`tools/verify-firmware.cjs` compares an owner-supplied uncompressed `uImage` and
+extracted exFAT modules against the known firmware/kernel profile. It checks CRCs,
+exported symbols, instruction bytes, the scratch cave and module fingerprints;
+it does not execute the firmware or automatically approve another profile:
+
+```sh
+node tools/verify-firmware.cjs --uimage PATH_TO_UIMAGE --modules PATH_TO_EXTRACTED_MODULES
+```
+
+The selective, read-only VDFS2007 reader can extract an explicitly named file
+from a supplied `platform.img` into ignored `out/` or `inputs/` only:
+
+```sh
+node tools/vdfs-reader.cjs --image PATH_TO_PLATFORM_IMAGE --extract /usr/lib/modules/4.1.10/kernel/exfat_core.ko --output out/exfat_core.ko
+```
+
+It is not a general firmware unpacker. The writable `/opt` startup script is not
+necessarily present in a platform image; use an existing original backup when
+needed. The reader was checked against the supplied firmware's exFAT module and
+its known digest. Extracted firmware is not committed or sent to a TV.
+
+`node tools/audit-source.cjs .` checks source and native strings for potentially
+personal addresses, device identifiers, home paths and secrets, with matched values
+redacted. Loopback/documentation examples and native assembly-version resources
+are distinguished from personal IP addresses. An optional `--denylist` JSON file
+in ignored `inputs/` can check locally known identifiers without publishing them.
+The firmware parser, VDFS reader and privacy scanner have dedicated host fixtures
+and are included in the offline CI job.
 
 ## Native source and pinned artifacts
 

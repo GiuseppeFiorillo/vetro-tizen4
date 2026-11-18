@@ -1,7 +1,7 @@
 'use strict';
 // Build-time adapters only. Never imported by the running TV service.
 const fs=require('fs'),path=require('path'),vm=require('vm');
-const root=path.resolve(__dirname,'..'),profile=require('../profiles/ue65nu7100-1400.2.json');
+const root=path.resolve(__dirname,'..'),profile=require('../profiles/ktm2ldeuc-1400.2.json');
 function once(source,old,value,label){const count=source.split(old).length-1;if(count!==1)throw Error(label+': expected one upstream hook, found '+count+'; review this upstream change');return source.replace(old,()=>value);}
 function transform(name,bytes,p=profile){
  if(!name.endsWith('.js'))return bytes;

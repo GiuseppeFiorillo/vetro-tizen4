@@ -9,7 +9,7 @@ if commit!=lock['commit'] and not a.candidate:raise ValueError('A new commit req
 repository=lock['repository'].removeprefix('https://github.com/');url='https://codeload.github.com/'+repository+'/zip/'+commit
 cache=ROOT/'.cache';cache.mkdir(exist_ok=True);output=cache/(a.source+'-'+commit+'.zip');temporary=output.with_suffix('.download')
 if output.exists() or temporary.exists():raise ValueError('Download target already exists; inspect/reuse it instead of overwriting')
-request=urllib.request.Request(url,headers={'User-Agent':'vetro-nu7100-source-lock'})
+request=urllib.request.Request(url,headers={'User-Agent':'vetro-standalone-source-lock'})
 with urllib.request.urlopen(request,timeout=60) as response,temporary.open('xb') as f:
     while chunk:=response.read(1024*1024):f.write(chunk)
 with zipfile.ZipFile(temporary) as z:observed,tree,count=identity(z)

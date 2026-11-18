@@ -38,5 +38,14 @@
   "historicalEarlierUnloggedAttemptFailed": true,
   "firstStartIconIssueStillPresent": true,
   "completionOverlayVerified": false,
-  "otherModelsOrFirmwareValidated": false
+  "otherModelsOrFirmwareValidated": false,
+  "publicPlatform": "Kant-M2 (T-KTM2)",
+  "buildProfile": "ktm2ldeuc-1400.2",
+  "buildSelectionUsesModelAllowlist": false,
+  "firmwareParserTests": 4,
+  "selectiveFirmwareReaderTests": 3,
+  "sourcePrivacyTests": 6,
+  "knownFirmwareStaticChecksPassed": true,
+  "knownExfatModuleExtractedAndDigestMatched": true,
+  "modelNeutralProfileReplayPreservedImageHashes": true
 }

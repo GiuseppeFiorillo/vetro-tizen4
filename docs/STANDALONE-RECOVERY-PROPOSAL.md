@@ -1,10 +1,10 @@
 # Proposal: standalone Vetro with independent USB recovery
 
-Status: draft review. The optional `kant-m2-root/nu7100/` directory now includes
-the full source and a reproducible build of the exact-target USB installer and
+Status: draft review. The optional `kant-m2-root/standalone-usb/` directory now includes
+the full source and a reproducible build of the firmware-profiled Kant-M2 USB installer and
 standalone runtime. Its build/tests do not install anything or contact a TV.
 It is not wired into the default app package or updater. The separate generic
-marker detector remains inert unless explicitly called. See the NU7100 README
+marker detector remains inert unless explicitly called. See the standalone USB README
 for required owner-supplied input, pinned dependencies and operator-only steps.
 
 ## Evidence and support boundary
@@ -25,9 +25,9 @@ T-KTM2LDEUC-1400.2**, exact build `T-KTM2LDEUC-REL-202606052034`:
   catalog readiness still needs investigation.
 
 These are observations from that local build, not hardware validation of this
-PR or evidence that other models are supported. The full supervisor, installer,
+PR or validation of other Kant-M2 models. The full supervisor, installer,
 pairing display and root integration are included as an optional, pinned reference
-under `kant-m2-root/nu7100/`, not as changes to the normal installation route.
+under `kant-m2-root/standalone-usb/`, not as changes to the normal installation route.
 Host source replay reproduced the exact logged installer and recovery image hashes;
 it is not another hardware trial. The generic detector uses the same source as
 the locally tested watcher, with host regression tests added here.
@@ -36,7 +36,7 @@ the locally tested watcher, with host regression tests added here.
 
 1. Keep dashboard and app-only packages independent of rooting implementation.
    Place privileged boot/recovery integration in `kant-m2-root/`, with an explicit
-   model/build profile. Unsupported firmware must fail closed.
+   firmware/kernel profile. Unrecognized firmware must fail closed.
 2. Prepare a separate, checksummed payload and trial configuration. Preserve the
    existing installation and rollback state until a bounded trial passes.
    Never infer permission to change system files from a diagnostic report.

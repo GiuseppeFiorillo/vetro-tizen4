@@ -1,6 +1,5 @@
 {
-  "id": "ue65nu7100-1400.2",
-  "model": "UE65NU7100",
+  "id": "ktm2ldeuc-1400.2",
   "firmware": "T-KTM2LDEUC-1400.2",
   "buildId": "T-KTM2LDEUC-REL-202606052034",
   "port": 18100,
@@ -18,5 +17,9 @@
   "ownerUid": 5001,
   "ownerGid": 100,
   "recoveryKeepsPairedMaintenance": true,
-  "baselinePackageSha256": "a1de6f3e411988f34a1406ecc04add145e0279f4b90715e548c2710d4eb3e7de"
+  "baselinePackageSha256": "a1de6f3e411988f34a1406ecc04add145e0279f4b90715e548c2710d4eb3e7de",
+  "platform": "T-KTM2",
+  "testedModels": [
+    "UE65NU7100"
+  ]
 }

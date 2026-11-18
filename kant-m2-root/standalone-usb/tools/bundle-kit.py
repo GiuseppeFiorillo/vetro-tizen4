@@ -22,17 +22,17 @@ excluded={'.cache','out','inputs','.venv','__pycache__','.git','bin','obj','node
 for path in ROOT.rglob('*'):
     if path.is_file() and not excluded.intersection(path.relative_to(ROOT).parts):
         if path.suffix.lower() in {'.dpapi','.key','.p12','.pfx','.pem','.wgt'}:raise ValueError('Private artifact in source')
-        items['SOURCE/nu7100/'+path.relative_to(ROOT).as_posix()]=path.read_bytes()
+        items['SOURCE/standalone-usb/'+path.relative_to(ROOT).as_posix()]=path.read_bytes()
 items['SOURCE/dependencies/vetro-tizen4.zip']=a.vetro_archive.read_bytes()
 items['SOURCE/dependencies/usb-root.zip']=a.usb_root_archive.read_bytes()
 for name in ['stage.S','stage-validation.json']:items['SOURCE/generated-stage/'+name]=(build/'stage'/name).read_bytes()
 items['SOURCE/build-provenance.json']=(build/'build-provenance.json').read_bytes()
 items['SHA256SUMS.txt']=(''.join(hashlib.sha256(data).hexdigest()+'  '+name+'\n' for name,data in sorted(items.items()))).encode()
-output=a.output.resolve() if a.output else build/'Vetro-NU7100-1400.2-source-build.zip'
+output=a.output.resolve() if a.output else build/'Vetro-T-KTM2-standalone-source-build.zip'
 output.resolve().relative_to(build)
 if output.exists():raise ValueError('Bundle already exists')
 with zipfile.ZipFile(output,'x',compression=zipfile.ZIP_DEFLATED,compresslevel=9) as z:
     for name,data in sorted(items.items()):
-        info=zipfile.ZipInfo('Vetro-NU7100-USB/'+name,date_time=(1980,1,1,0,0,0));info.create_system=3;info.external_attr=0o100644<<16;info.compress_type=zipfile.ZIP_DEFLATED
+        info=zipfile.ZipInfo('Vetro-T-KTM2-USB/'+name,date_time=(1980,1,1,0,0,0));info.create_system=3;info.external_attr=0o100644<<16;info.compress_type=zipfile.ZIP_DEFLATED
         z.writestr(info,data,compresslevel=9)
 print(json.dumps({'bundle':str(output),'sha256':hashlib.sha256(output.read_bytes()).hexdigest(),'files':len(items)},indent=2))

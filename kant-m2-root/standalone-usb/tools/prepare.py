@@ -41,8 +41,8 @@ def prepare(archive,output,candidate=False):
     actual_inputs={p.relative_to(output).as_posix() for p in (output/'dock/src').rglob('*.cs')}|{'dock/Launcher.csproj'}
     mismatch+=sorted(actual_inputs-set(manifest['launcherInputs']))
     report['nativeBuildRequired']=bool(mismatch);report['changedNativeInputs']=mismatch
-    (output/'nu7100-source.json').write_text(json.dumps(report,indent=2)+'\n')
+    (output/'standalone-source.json').write_text(json.dumps(report,indent=2)+'\n')
     print(json.dumps(report,indent=2));return report
 if __name__=='__main__':
-    a=argparse.ArgumentParser();a.add_argument('--archive',type=Path,default=ROOT.parent/'analysis/vetro-tizen4.zip');a.add_argument('--output',type=Path,required=True);a.add_argument('--candidate',action='store_true');v=a.parse_args()
+    a=argparse.ArgumentParser();a.add_argument('--archive',type=Path,required=True);a.add_argument('--output',type=Path,required=True);a.add_argument('--candidate',action='store_true');v=a.parse_args()
     prepare(v.archive.resolve(),v.output.resolve(),v.candidate)

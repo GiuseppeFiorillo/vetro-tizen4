@@ -1,5 +1,5 @@
 {
-  "name": "vetro-nu7100-compat",
+  "name": "vetro-standalone-usb",
   "version": "1.0.0",
   "private": true,
   "scripts": {
