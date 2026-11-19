@@ -15,7 +15,12 @@ When it is on, the Home key opens this launcher instead of Samsung's Home. The d
 the same apps, in the same order and with the same icons as Samsung's Home row, read
 from the TV at start-up, and ends with two outline pills, Settings and Samsung Home.
 
-The Samsung Home pill uses the original upstream `app_launcher -s` request, with the existing fallback for firmware that defines one. On the tested Tizen 4 TV this programmatic launch is not reliable. Timing retries, forced user/environment settings and HbbTV workarounds are not included. Leave the launcher disabled when you need the normal Samsung Home key.
+On Kant-M2 firmware using `corerun` without `/usr/bin/dotnet`, the Samsung Home
+pill launches `com.samsung.tv.csfs` through `aul_test launch_async_for_uid` under
+owner UID 5001. This is the native route verified by standalone recovery on
+UE65NU7100 / T-KTM2LDEUC-1400.2; the former `app_launcher -s` route could report
+success without showing Home. Other runtime paths retain their existing system
+launch behavior. The corrected tile itself still needs live hardware confirmation.
 
 ## Layout
 

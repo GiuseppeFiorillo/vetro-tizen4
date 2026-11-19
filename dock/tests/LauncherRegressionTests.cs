@@ -21,6 +21,33 @@ namespace Launcher.Tests
 
         public static void Run()
         {
+            T.Run("legacy Samsung Home: native owner launch replaces app_launcher", () =>
+            {
+                string dir = Path.Combine(Path.GetTempPath(), "vetro-home-launch-" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(dir);
+                try
+                {
+                    string tool = Path.Combine(dir, "native-launcher"), log = Path.Combine(dir, "calls");
+                    File.WriteAllText(tool, "#!/bin/sh\nprintf '%s\\n' \"$*\" >> " + Q(log) + "\n");
+                    Shell("chmod +x " + Q(tool));
+                    string command = SystemLaunch.Command("com.samsung.tv.csfs", null, true);
+                    T.True(command != null, "Samsung Home has a native legacy route");
+                    if (command == null) return;
+                    T.True(!command.Contains("/usr/bin/app_launcher"), "do not use the route that can report success without showing Home");
+                    Shell(command.Replace("/usr/bin/aul_test", Q(tool))
+                        .Replace("/home/owner/tvlauncher-system-launch.log", Q(Path.Combine(dir, "output"))) + " wait");
+                    string[] calls = File.ReadAllLines(log);
+                    T.Eq(calls.Length, 1, "one native launch per tile activation");
+                    T.Eq(calls[0], "launch_async_for_uid com.samsung.tv.csfs 5001", "Home uses the native owner session");
+                    T.True(SystemLaunch.Command("com.samsung.tv.csfs", null).Contains("/usr/bin/app_launcher -s"), "modern runtime retains its existing Home route");
+                    T.True(SystemLaunch.Command("org.tizen.menu", null, true).Contains("/usr/bin/app_launcher -s org.tizen.menu"), "other legacy system tiles keep their existing route");
+                    bool refused = false;
+                    try { SystemLaunch.Command("com.samsung.tv.csfs;bad", null, true); } catch (ArgumentException) { refused = true; }
+                    T.True(refused, "native route still validates app IDs");
+                    T.True(HomeGuard.ShouldCancel(new[] { "com.samsung.tv.csfs" }, "com.samsung.tv.csfs"), "activating Home retires its close guard");
+                }
+                finally { Directory.Delete(dir, true); }
+            });
             T.Run("legacy TV actions: separate tuner and TV Plus, native key pairs", () =>
             {
                 T.Eq(LegacyTvActions.Command("tvplus", "other.app"), null, "ordinary apps are never redirected");

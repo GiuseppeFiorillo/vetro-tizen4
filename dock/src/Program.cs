@@ -854,7 +854,8 @@ namespace Launcher
                 {
                     // Samsung's Home ignores a plain app-control request from here (logged as launched, never shown);
                     // the platform's own launcher starts it. The same goes for the other system controls (sys: rows).
-                    Log("launch " + e.AppId + " rc=" + Libc.system(SystemLaunch.Command(e.AppId, e.FallbackAppId)));
+                    bool legacyRuntime = !File.Exists("/usr/bin/dotnet") && File.Exists("/usr/share/dotnet/corerun");
+                    Log("launch " + e.AppId + " rc=" + Libc.system(SystemLaunch.Command(e.AppId, e.FallbackAppId, legacyRuntime)));
                     return;
                 }
                 long t0 = Stopwatch.GetTimestamp();
