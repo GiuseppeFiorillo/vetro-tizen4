@@ -1,0 +1,7 @@
+[
+  {
+    "file": "optional-home-launch/native-home-launch.patch",
+    "reason": "Candidate native owner Home tile route; not enabled in historical image replay",
+    "sha256": "11e583ee83c1c7dcc8693de16901b371f3c1b407c5f4e4281b592c4d86cccb34"
+  }
+]

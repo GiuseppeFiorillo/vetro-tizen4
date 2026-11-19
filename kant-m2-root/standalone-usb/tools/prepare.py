@@ -7,7 +7,7 @@ def identity(z):
     files={PurePosixPath(*PurePosixPath(i.filename).parts[1:]).as_posix():sha(z.read(i)) for i in z.infolist() if not i.is_dir()}
     tree=sha(''.join(n+'\0'+files[n]+'\n' for n in sorted(files)).encode())
     return z.comment.decode('ascii'),tree,len(files)
-def prepare(archive,output,candidate=False):
+def prepare(archive,output,candidate=False,home_launch_fix=False):
     lock=json.loads((ROOT/'sources.lock.json').read_text())['sources']['tizen4']
     actual=sha(archive.read_bytes())
     if output.exists():raise ValueError('Output must not exist; choose a new staging directory')
@@ -24,7 +24,9 @@ def prepare(archive,output,candidate=False):
             target=output/rel;target.resolve().relative_to(output.resolve())
             if info.is_dir():target.mkdir(parents=True,exist_ok=True)
             else:target.parent.mkdir(parents=True,exist_ok=True);target.write_bytes(z.read(info))
-    for entry in json.loads((ROOT/'patches/series.json').read_text()):
+    series=json.loads((ROOT/'patches/series.json').read_text())
+    if home_launch_fix:series+=json.loads((ROOT/'patches/optional-home-launch/series.json').read_text())
+    for entry in series:
         p=ROOT/'patches'/entry['file']
         if sha(p.read_bytes())!=entry['sha256']:raise ValueError('Patch checksum changed; update reviewed series manifest: '+entry['file'])
         # Staged archives are not Git checkouts. Do not discover the enclosing
@@ -32,7 +34,7 @@ def prepare(archive,output,candidate=False):
         env=dict(os.environ,GIT_CEILING_DIRECTORIES=str(output.parent.resolve()))
         subprocess.run(['git','apply','--check',str(p)],cwd=output,env=env,check=True)
         subprocess.run(['git','apply',str(p)],cwd=output,env=env,check=True)
-    report={'sourceCommit':commit,'archiveSha256':actual,'treeSha256':tree,'candidate':candidate,'sourcePinned':not candidate,'patchesApplied':4,'nativeBuildRequired':False}
+    report={'sourceCommit':commit,'archiveSha256':actual,'treeSha256':tree,'candidate':candidate or home_launch_fix,'sourcePinned':not(candidate or home_launch_fix),'patchesApplied':len(series),'appliedPatches':series,'optionalHomeLaunchFix':home_launch_fix,'nativeBuildRequired':False}
     manifest=json.loads((ROOT/'native/manifest.json').read_text())
     mismatch=[]
     for n,h in manifest['launcherInputs'].items():
@@ -44,5 +46,5 @@ def prepare(archive,output,candidate=False):
     (output/'standalone-source.json').write_text(json.dumps(report,indent=2)+'\n')
     print(json.dumps(report,indent=2));return report
 if __name__=='__main__':
-    a=argparse.ArgumentParser();a.add_argument('--archive',type=Path,required=True);a.add_argument('--output',type=Path,required=True);a.add_argument('--candidate',action='store_true');v=a.parse_args()
-    prepare(v.archive.resolve(),v.output.resolve(),v.candidate)
+    a=argparse.ArgumentParser();a.add_argument('--archive',type=Path,required=True);a.add_argument('--output',type=Path,required=True);a.add_argument('--candidate',action='store_true');a.add_argument('--home-launch-fix',action='store_true');v=a.parse_args()
+    prepare(v.archive.resolve(),v.output.resolve(),v.candidate,v.home_launch_fix)

@@ -33,6 +33,11 @@ First-start icons required a later refresh/restart. No completion overlay was
 verified. Builds made during this source extraction were **not** deployed again.
 See `usb/OPERATING-INSTRUCTIONS.txt` and the parent standalone proposal.
 
+Known Home-tile issue: the historical image's Samsung Home pill may do nothing
+because it uses the generic launch route. A native owner-route correction is
+available as an explicit [candidate patch](docs/HOME-TILE-FIX.md); it is not silently
+enabled in the byte-identical replay or claimed as newly hardware-validated.
+
 ## Reproduce the tested images
 
 Use Docker with Linux containers (Compose v2) from this directory. The Dockerfile

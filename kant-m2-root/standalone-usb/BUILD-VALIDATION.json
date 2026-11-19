@@ -11,7 +11,7 @@
   "payloadFilesByteIdentical": 104,
   "installImageSha256": "eb425440a16e97d7480203b6f3a303e7b34d4767379b18c63a078290a95b0974",
   "recoveryImageSha256": "3d2e55ab671eb76e8c864bcadc52d7617920b6896ea0919570c01d06191a2d77",
-  "sourceParityAndDriftTests": 10,
+  "sourceParityAndDriftTests": 11,
   "targetInputGuardTests": 3,
   "installerFixtureCases": 14,
   "rollbackFixtureCases": 16,
@@ -47,5 +47,9 @@
   "sourcePrivacyTests": 6,
   "knownFirmwareStaticChecksPassed": true,
   "knownExfatModuleExtractedAndDigestMatched": true,
-  "modelNeutralProfileReplayPreservedImageHashes": true
+  "modelNeutralProfileReplayPreservedImageHashes": true,
+  "historicalSamsungHomeTileIssueKnown": true,
+  "optionalHomeTileFixRequiresNativeRebuild": true,
+  "optionalHomeTileFixHardwareConfirmed": false,
+  "optionalHomeTileFixNativeChecks": 5176
 }

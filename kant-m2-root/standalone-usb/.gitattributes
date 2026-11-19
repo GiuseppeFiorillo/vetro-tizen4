@@ -10,6 +10,7 @@ overlay/root/** -text
 overlay/pairing/** -text
 native/pinned/** binary
 patches/*.patch -text -whitespace
+patches/**/*.patch -text -whitespace
 patches/series.json text eol=lf
 # Preserve the historical installer bytes used by the hardware-tested image.
 usb/install.js -text

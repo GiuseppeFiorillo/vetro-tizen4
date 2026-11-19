@@ -37,3 +37,11 @@ test('same commit with changed source content is rejected',()=>{
 test('GitHub ZIP container name may differ when commit and full source tree match',()=>{
  const repacked=path.join(lab,'repacked.zip'),code="import zipfile,sys\nwith zipfile.ZipFile(sys.argv[1]) as a,zipfile.ZipFile(sys.argv[2],'w',zipfile.ZIP_DEFLATED) as b:\n b.comment=a.comment\n for item in a.infolist():b.writestr(item.filename.replace('vetro-tizen4-main/','vetro-tizen4-pinned/'),a.read(item))\n";const r=cp.spawnSync(python,['-c',code,archive,repacked],{encoding:'utf8'});assert.equal(r.status,0,r.stderr);assert.notEqual(sha(archive),sha(repacked));const check=prepare(repacked,path.join(lab,'repacked-source'));assert.equal(check.status,0,check.stderr);
 });
+test('optional Home launch fix is a candidate and requires rebuilt native code',()=>{
+ const dest=path.join(lab,'home-launch-candidate');
+ const r=cp.spawnSync(python,[path.join(root,'tools/prepare.py'),'--archive',archive,'--output',dest,'--home-launch-fix'],{encoding:'utf8',windowsHide:true});
+ assert.equal(r.status,0,r.stderr);const m=JSON.parse(fs.readFileSync(path.join(dest,'standalone-source.json')));
+ assert.equal(m.optionalHomeLaunchFix,true);assert.equal(m.candidate,true);assert.equal(m.sourcePinned,false);assert.equal(m.patchesApplied,5);assert.equal(m.nativeBuildRequired,true);
+ assert.throws(()=>nativeCheck(dest),/Native source changed/);
+ assert.match(fs.readFileSync(path.join(dest,'dock/src/Core/SystemLaunch.cs'),'utf8'),/aul_test launch_async_for_uid com\.samsung\.tv\.csfs 5001/);
+});

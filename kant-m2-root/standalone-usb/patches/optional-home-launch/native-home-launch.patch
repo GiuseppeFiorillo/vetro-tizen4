@@ -1,0 +1,71 @@
+diff --git a/dock/src/Core/SystemLaunch.cs b/dock/src/Core/SystemLaunch.cs
+--- a/dock/src/Core/SystemLaunch.cs
++++ b/dock/src/Core/SystemLaunch.cs
+@@ -5,11 +5,15 @@
+     internal static class SystemLaunch
+     {
+         // Test the real app_launcher's exit code in the detached shell, not the shell-start result.
+-        public static string Command(string appId, string fallback)
++        public static string Command(string appId, string fallback, bool legacyRuntime = false)
+         {
+             if (!Catalog.ValidAppId(appId) || (fallback != null && !Catalog.ValidAppId(fallback)))
+                 throw new ArgumentException("Invalid system app id");
+-            string command = "/usr/bin/app_launcher -s " + appId;
++            // On Kant-M2, app_launcher may report success without showing Home.
++            // Match the native owner route used by the tested recovery fallback.
++            string command = legacyRuntime && appId == "com.samsung.tv.csfs"
++                ? "/usr/bin/aul_test launch_async_for_uid com.samsung.tv.csfs 5001"
++                : "/usr/bin/app_launcher -s " + appId;
+             if (fallback != null) command += " || /usr/bin/app_launcher -s " + fallback;
+             return "( " + command + " ) >/dev/null 2>&1 &";
+         }
+diff --git a/dock/src/Program.cs b/dock/src/Program.cs
+--- a/dock/src/Program.cs
++++ b/dock/src/Program.cs
+@@ -857,7 +857,8 @@
+                 {
+                     // Samsung's Home ignores a plain app-control request from here (logged as launched, never shown);
+                     // the platform's own launcher starts it. The same goes for the other system controls (sys: rows).
+-                    Log("launch " + e.AppId + " rc=" + Libc.system(SystemLaunch.Command(e.AppId, e.FallbackAppId)));
++                    bool legacyRuntime = !File.Exists("/usr/bin/dotnet") && File.Exists("/usr/share/dotnet/corerun");
++                    Log("launch " + e.AppId + " rc=" + Libc.system(SystemLaunch.Command(e.AppId, e.FallbackAppId, legacyRuntime)));
+                     return;
+                 }
+                 long t0 = Stopwatch.GetTimestamp();
+diff --git a/dock/tests/LauncherRegressionTests.cs b/dock/tests/LauncherRegressionTests.cs
+--- a/dock/tests/LauncherRegressionTests.cs
++++ b/dock/tests/LauncherRegressionTests.cs
+@@ -44,6 +44,33 @@
+                     T.Eq(calls[2], "-s org.tizen.netflix-app -u 5001", "web Netflix uses native owner runtime");
+                     T.Eq(calls[3], calls[2], "native Netflix also keeps owner identity");
+                     T.Eq(LegacyTvActions.Command("prime", "evKhCgZelL.AmazonIgnitionLauncher2"), null, "other streaming apps are unchanged");
++                }
++                finally { Directory.Delete(dir, true); }
++            });
++            T.Run("legacy Samsung Home: native owner launch replaces app_launcher", () =>
++            {
++                string dir = Path.Combine(Path.GetTempPath(), "vetro-home-launch-" + Guid.NewGuid().ToString("N"));
++                Directory.CreateDirectory(dir);
++                try
++                {
++                    string tool = Path.Combine(dir, "native-launcher"), log = Path.Combine(dir, "calls");
++                    File.WriteAllText(tool, "#!/bin/sh\nprintf '%s\\n' \"$*\" >> " + Q(log) + "\n");
++                    Shell("chmod +x " + Q(tool));
++                    string command = SystemLaunch.Command("com.samsung.tv.csfs", null, true);
++                    T.True(command != null, "Samsung Home has a native legacy route");
++                    if (command == null) return;
++                    T.True(!command.Contains("/usr/bin/app_launcher"), "do not use the route that can report success without showing Home");
++                    Shell(command.Replace("/usr/bin/aul_test", Q(tool))
++                        .Replace("/home/owner/tvlauncher-system-launch.log", Q(Path.Combine(dir, "output"))) + " wait");
++                    string[] calls = File.ReadAllLines(log);
++                    T.Eq(calls.Length, 1, "one native launch per tile activation");
++                    T.Eq(calls[0], "launch_async_for_uid com.samsung.tv.csfs 5001", "Home uses the native owner session");
++                    T.True(SystemLaunch.Command("com.samsung.tv.csfs", null).Contains("/usr/bin/app_launcher -s"), "modern runtime retains its existing Home route");
++                    T.True(SystemLaunch.Command("org.tizen.menu", null, true).Contains("/usr/bin/app_launcher -s org.tizen.menu"), "other legacy system tiles keep their existing route");
++                    bool refused = false;
++                    try { SystemLaunch.Command("com.samsung.tv.csfs;bad", null, true); } catch (ArgumentException) { refused = true; }
++                    T.True(refused, "native route still validates app IDs");
++                    T.True(HomeGuard.ShouldCancel(new[] { "com.samsung.tv.csfs" }, "com.samsung.tv.csfs"), "activating Home retires its close guard");
+                 }
+                 finally { Directory.Delete(dir, true); }
+             });

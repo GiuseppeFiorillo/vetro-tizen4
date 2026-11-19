@@ -47,6 +47,9 @@ The ordinary recovery marker needs a running supervisor and cannot repair every
 possible partial installation. Failed partial installs require diagnosis.
 
 KNOWN LIMITATIONS
+- The historical Samsung Home tile uses a generic launch route that may do
+  nothing. See docs/HOME-TILE-FIX.md for the separate native-launch candidate;
+  this historical image is not silently changed by that option.
 - The earlier unlogged candidate failed one fresh attempt. This logged variant
   succeeded, but the cause of that difference is unproven; no broad reliability
   guarantee follows from one controlled fresh-install run.
