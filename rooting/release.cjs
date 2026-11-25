@@ -29,10 +29,22 @@ function keygen(folder) {
     console.log(publicPem);
 }
 
+// What never goes into a bundle: the Samsung package's own files (a file swap cannot change them) and the notices.
+// Tizen 4: the chain's root daemon runs as root outside the package, so a signed in-place update cannot
+// replace it; a daemon change needs a package reinstall.
+const PACKAGE_ONLY = /^(?:config\.xml|LICENSE|THIRD_PARTY_NOTICES\.md|notices\/[A-Za-z0-9_.-]+|root-daemon\/[A-Za-z0-9_.-]+)$/;
+// A TV checks the bundle with the updater it runs. 0.5.x refuses any subfolder of payload/ and then refuses the whole
+// bundle, so payload/net6 stays out until no 0.5.x is left to update (it has not changed since 0.5.0) (#226).
+const OLD_UPDATER = /^payload\/[^/]+\//;
+
 function buildBundle(privatePem) {
     const info = {};
+    // Tizen 4: updates carry the chain package (app sources, legacy adapter and daemon), not the upstream root payloads.
     const all = collectChainFiles().map(f => ({ name: decodeURIComponent(f.uri), data: f.data }));
-    const files = all.filter(f => updater.okPath(f.name));
+    const files = all.filter(f => updater.okPath(f.name) && !OLD_UPDATER.test(f.name));
+    // A file that is neither shipped nor package-only would be left behind on every TV without a word: stop instead.
+    const lost = all.filter(f => !updater.okPath(f.name) && !PACKAGE_ONLY.test(f.name)).map(f => f.name);
+    if (lost.length) throw new Error('Files the updater refuses, so no update would carry them: ' + lost.join(', '));
     const infoFile = files.find(f => f.name === 'service/build-info.js');
     Object.assign(info, updater.parseBuildInfo(infoFile.data));
     if (!info.version || !(info.shell >= 1)) throw new Error('build-info.js has no version or shell');
@@ -56,6 +68,11 @@ function build(folder) {
     const built = buildBundle(privatePem);
     // Check what was just written exactly as a TV would.
     updater.verifyBundle(built.raw, publicPem);
+    // Enforce the old fork daemon's limit only where the package revision permits
+    // an in-place update. Reinstall-required indexes still carry the higher shell.
+    const parsed = JSON.parse(built.raw), shipped = Object.keys(parsed.files).map(n => ({ name: n, data: Buffer.from(parsed.files[n], 'base64') }));
+    const size = require('./update-size.cjs');
+    const compatibility = size.assertFits(size.measure(shipped, built.info));
     const keyInPackage = require('../app/service/update-key.js');
     if (keyInPackage && keyInPackage.trim() !== publicPem.trim()) throw new Error('This key does not match app/service/update-key.js: TVs would refuse the bundle');
     if (!require('../app/service/plugin-key.js')) console.warn('Warning: app/service/plugin-key.js has no key, so unsigned plugins require Developer mode (this is a different key from the update key)');
@@ -66,6 +83,8 @@ function build(folder) {
     fs.writeFileSync(path.join(dir, name), built.raw);
     const index = { version: built.info.version, shell: built.info.shell, file: name, sha256: sha256(Buffer.from(built.raw)), size: Buffer.byteLength(built.raw) };
     fs.writeFileSync(path.join(dir, 'update-index.json'), JSON.stringify(index, null, 2) + '\n');
+    compatibility.filter(r => r.requiresReinstall).forEach(r => console.log(r.build +
+        ' requires a package reinstall (shell ' + r.installedShell + ' -> ' + r.targetShell + ')'));
     console.log('wrote ' + path.join(dir, name) + ' (' + index.size + ' bytes, sha256 ' + index.sha256 + ')');
     console.log('wrote ' + path.join(dir, 'update-index.json'));
 }

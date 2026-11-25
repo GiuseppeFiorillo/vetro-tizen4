@@ -3,16 +3,20 @@
 const fs = require('fs');
 const path = require('path');
 const crc32 = require('./service/package-info.js').crc32;
-// The dock's images live with its sources in ../dock/res and are packaged under native/dock/res.
-function dockResources() {
-    const root = path.join(__dirname, '..', 'dock', 'res'), found = [];
+// The pictures of a native part live with its sources (../dock/res, ../tuner/res) and are packaged under native/<part>/res.
+function nativeResources(part) {
+    const root = path.join(__dirname, '..', part, 'res'), found = [];
     (function walk(dir, rel) {
         fs.readdirSync(dir).sort().forEach(name => {
             const full = path.join(dir, name), next = rel ? rel + '/' + name : name;
             if (fs.statSync(full).isDirectory()) walk(full, next); else if (/\.(png|tsv)$/.test(name)) found.push(next);
         });
     })(root, '');
-    return found.map(rel => ({name: 'native/dock/res/' + rel, source: path.join(root, rel)}));
+    // A tuner picture that is byte for byte the launcher's (the osd 123's pill_bg, pill_rim, pill_cap) is shipped once, in native/dock/res,
+    // where the tuner looks when its own folder lacks a file (tuner/src/Ui/Surface.cs Asset): each file costs room in the update from 0.5.0.
+    const dock = path.join(__dirname, '..', 'dock', 'res');
+    const same = rel => part === 'tuner' && fs.existsSync(path.join(dock, rel)) && fs.readFileSync(path.join(dock, rel)).equals(fs.readFileSync(path.join(root, rel)));
+    return found.filter(rel => !same(rel)).map(rel => ({name: 'native/' + part + '/res/' + rel, source: path.join(root, rel)}));
 }
 const DEFAULT_PORT = 8099;
 // Ports the package already uses for other things: the TV's remote WebSocket origins in config.xml.
@@ -33,11 +37,12 @@ function collectFiles() {
     const profile = process.env.VETRO_PROFILE || 'default';
     if (!['default', 'tizen4-public'].includes(profile)) throw new Error('Unknown VETRO_PROFILE: ' + profile);
     const publicOnly = profile === 'tizen4-public';
-    const dockFiles = publicOnly ? [] : dockResources();
+    const dockFiles = publicOnly ? [] : nativeResources('dock').concat(nativeResources('tuner'));
     const port = buildPort();
     let names = ['config.xml', 'index.html', 'icon.png', 'native/TvState.dll', 'native/TvState.runtimeconfig.json',
         'native/dock/tvlauncher-dotnet.dll', 'native/dock/tvlauncher-dotnet.runtimeconfig.json',
-        'native/dock/tvlauncher-dotnet-2.0.dll', 'native/dock/tvlauncher-dotnet-2.0.runtimeconfig.json'].concat(
+        'native/dock/tvlauncher-dotnet-2.0.dll', 'native/dock/tvlauncher-dotnet-2.0.runtimeconfig.json',
+        'native/tuner/vetro-tuner.dll', 'native/tuner/vetro-tuner.runtimeconfig.json'].concat(
         fs.readdirSync(path.join(__dirname,'service')).filter(name => name.endsWith('.js')).sort().map(name => 'service/' + name));
     if (publicOnly) names = names.filter(name => !name.startsWith('native/'));
     const metadata = Object.assign({}, require('./service/build-info.js'));

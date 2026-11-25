@@ -1,12 +1,38 @@
 'use strict';
 const assert=require('assert').strict,qw=require('../service/quick-wins.js');
 // A small TV. Scripts are interpreted by their effect, never run.
+const PARSEINFO='#!/bin/bash\nRepo=$(grep Build= /etc/prd_info.ini)\necho "__REPO__" > /proc/target_version\n';
 function tv(start){
- const s=Object.assign({autoupdate:1,ms:false,msRun:true,amb:false,ambRun:false,failSet:false,keep:true,ambStays:false,telRun:8,telStays:0,apPresent:true,apFlag:false,apSvc:true,apWeb:true,apStays:false,calls:[]},start);
+ const s=Object.assign({autoupdate:1,fwsvc:1,fwMasked:{},fwActive:{},markers:true,maskFails:false,keepSvc:true,
+  ms:false,msRun:true,amb:false,ambRun:false,failSet:false,keep:true,ambStays:false,telRun:8,telStays:0,apPresent:true,apFlag:false,apSvc:true,apWeb:true,apStays:false,calls:[],
+  parseinfo:PARSEINFO,parseinfoBak:null,hookInstalled:false,hookAccept:true},start);
+ // The AT-HUB hook: install decodes the awk payload, remove restores the saved original.
+ function runHook(sh){
+  if(sh.includes('sha256sum')){
+   if(!s.parseinfo)return 'vetro-hook: no parseinfo\n';
+   const h=/\nH=([A-Za-z0-9+/=]+)\n/.exec(sh),body=h?Buffer.from(h[1],'base64').toString():'';
+   if(s.parseinfo.includes('VETRO_UPDATE_LOCK_HOOK')){if(s.parseinfo!==body){s.parseinfo=body;s.hookUpgrades=(s.hookUpgrades||0)+1;}return 'vetro-hook: installed\n';}
+   if(!s.hookAccept)return 'vetro-hook: unknown parseinfo\n';
+   if(!s.parseinfoBak)s.parseinfoBak=s.parseinfo;
+   s.parseinfo=body;s.hookInstalled=true;
+   return 'vetro-hook: installed\n';
+  }
+  if(sh.includes('vetro-hook: restored')){
+   if(s.parseinfoBak&&s.parseinfo.includes('VETRO_UPDATE_LOCK_HOOK')){s.parseinfo=s.parseinfoBak;s.parseinfoBak=null;s.hookInstalled=false;return 'vetro-hook: restored\n';}
+   return 'vetro-hook: unchanged\n';
+  }
+  return '';
+ }
  const execute=async cmd=>{const sh=Buffer.from(cmd.split(' ')[1],'base64').toString();s.calls.push(sh);
-  if(sh.includes('echo "AU|'))return {exit_code:0,stdout:'AU|value = '+s.autoupdate+' (Int32)\nMS|'+(s.ms?1:0)+'\nMR|'+(s.msRun?1:0)+'\nAR|'+(s.ambRun?1:0)+'\nTB|'+(s.telBrakes||0)+'\nTR|'+s.telRun+'\nAP|'+(s.apPresent?1:0)+'\nAF|'+(s.apFlag?1:0)+'\nAS|'+(s.apSvc?'active':'inactive')+'\nAW|'+(s.apWeb?1:0)+'\n'};
-  if(sh.startsWith('vconftool get'))return {exit_code:0,stdout:'value = '+s.autoupdate+' (Int32)\n'};
-  const set=/vconftool set -f -t int \S+ (-?\d+)/.exec(sh);if(set){if(s.failSet)return {exit_code:1,stderr:'denied',stdout:''};if(s.keep||Number(set[1])===1)s.autoupdate=Number(set[1]);return {exit_code:0,stdout:''};}
+  if(sh.includes('echo "AU|'))return {exit_code:0,stdout:'AU|value = '+s.autoupdate+' (Int32)\nFWS|value = '+s.fwsvc+' (Int32)\n'+
+   qw.FWUNITS.map(u=>'LS|'+u+'|'+(s.fwMasked[u]?'masked':'loaded')+'|'+(s.fwMasked[u]?'inactive':s.fwActive[u]?'active':'inactive')).join('\n')+
+   '\nMS|'+(s.ms?1:0)+'\nMR|'+(s.msRun?1:0)+'\nAR|'+(s.ambRun?1:0)+'\nTB|'+(s.telBrakes||0)+'\nTR|'+s.telRun+'\nAP|'+(s.apPresent?1:0)+'\nAF|'+(s.apFlag?1:0)+'\nAS|'+(s.apSvc?'active':'inactive')+'\nAW|'+(s.apWeb?1:0)+'\nQB|'+(s.parseinfo&&s.parseinfo.includes('VETRO_UPDATE_LOCK_HOOK')?1:0)+'\n'};
+  if(sh.startsWith('vconftool get'))return {exit_code:0,stdout:'value = '+(sh.includes(qw.FWSERVICE)?s.fwsvc:s.autoupdate)+' (Int32)\n'};
+  const set=/vconftool set -f -t int (\S+) (-?\d+)/.exec(sh);if(set&&/^vconftool set/.test(sh)){if(s.failSet)return {exit_code:1,stderr:'denied',stdout:''};const v=Number(set[2]);
+   if(set[1]===qw.FWSERVICE){if(s.keepSvc)s.fwsvc=v;}else if(s.keep||v===1)s.autoupdate=v;return {exit_code:0,stdout:''};}
+  if(/^set \+e\nsystemctl mask --runtime /.test(sh)){for(const u of qw.FWUNITS){if(!s.maskFails)s.fwMasked[u]=true;s.fwActive[u]=false;}s.markers=false;s.maskRuns=(s.maskRuns||0)+1;if(!s.failSet)for(const m of sh.matchAll(/vconftool set -f -t int (\S+) (-?\d+)/g)){if(m[1]===qw.FWSERVICE){if(s.keepSvc)s.fwsvc=Number(m[2]);}else if(s.keep||Number(m[2])===1)s.autoupdate=Number(m[2]);}return {exit_code:0,stdout:runHook(sh)};}
+  if(/^set \+e\nsystemctl unmask/.test(sh)){s.fwMasked={};for(const u of ['swu-auto-upgrade.timer','swu-verifier-tv.service','was-background-update.path','fw-update-service.path','vdsystem-update-manager.timer','appbinary-manager.service'])s.fwActive[u]=true;s.unmaskRuns=(s.unmaskRuns||0)+1;return {exit_code:0,stdout:runHook(sh)};}
+  if(sh.includes('vetro-hook:')||sh.includes('sha256sum'))return {exit_code:0,stdout:runHook(sh)};
   if(sh.includes('touch '+qw.MULTISCREEN_FLAG)){s.ms=true;if(/app_launcher -t com.samsung.tv.multiscreen/.test(sh))s.msRun=false;}
   if(sh.includes('rm -f '+qw.MULTISCREEN_FLAG))s.ms=false;
   if(sh.includes('touch /opt/usr/share/systemd/system/canalysis-daemon')){s.telBrakes=3;s.telRun=s.telStays;s.telOffRuns=(s.telOffRuns||0)+1;}
@@ -24,24 +50,90 @@ function store(){let data=null;return {readFileSync(){if(data===null)throw Error
 const noWait=()=>Promise.resolve();
 (async()=>{
  // Reading
- assert.deepEqual(qw.parse('AU|value = 0 (Int32)\nMS|1\nMR|0\nAR|1\nnoise'),{autoupdate:0,multiscreenFlag:true,multiscreenRunning:false,ambientRunning:true,telemetryBrakes:null,telemetryRunning:null,airplayPresent:null,airplayFlag:null,airplayService:null,airplayWeb:null});
- assert.deepEqual(qw.parse('TB|3\nTR|2'),{autoupdate:null,multiscreenFlag:null,multiscreenRunning:null,ambientRunning:null,telemetryBrakes:3,telemetryRunning:2,airplayPresent:null,airplayFlag:null,airplayService:null,airplayWeb:null});
- assert.deepEqual(qw.parse('AU|Error: no such key'),{autoupdate:null,multiscreenFlag:null,multiscreenRunning:null,ambientRunning:null,telemetryBrakes:null,telemetryRunning:null,airplayPresent:null,airplayFlag:null,airplayService:null,airplayWeb:null},'what cannot be read stays unknown');
+ assert.deepEqual(qw.parse('AU|value = 0 (Int32)\nMS|1\nMR|0\nAR|1\nnoise'),{autoupdate:0,fwService:null,fwUnits:{},multiscreenFlag:true,multiscreenRunning:false,ambientRunning:true,telemetryBrakes:null,telemetryRunning:null,airplayPresent:null,airplayFlag:null,airplayService:null,airplayWeb:null,quickbootHook:null});
+ assert.deepEqual(qw.parse('TB|3\nTR|2'),{autoupdate:null,fwService:null,fwUnits:{},multiscreenFlag:null,multiscreenRunning:null,ambientRunning:null,telemetryBrakes:3,telemetryRunning:2,airplayPresent:null,airplayFlag:null,airplayService:null,airplayWeb:null,quickbootHook:null});
+ assert.deepEqual(qw.parse('AU|Error: no such key'),{autoupdate:null,fwService:null,fwUnits:{},multiscreenFlag:null,multiscreenRunning:null,ambientRunning:null,telemetryBrakes:null,telemetryRunning:null,airplayPresent:null,airplayFlag:null,airplayService:null,airplayWeb:null,quickbootHook:null},'what cannot be read stays unknown');
  let t=tv(),io=store(),w=new qw.Wins(t.execute,{fs:io,sleep:noWait,bootId:()=>'boot-1'});
  let st=await w.read();assert.deepEqual([st.wins.firmware.status,st.wins.multiscreen.status,st.wins.ambient.status],['off','off','off']);assert.equal(st.wins.telemetry.status,'off');
 
- // Auto update: 1 -> 0 with readback, the old value is kept and comes back
- let r=await w.apply('firmware',true);assert.equal(r.changed,true);assert.equal(t.s.autoupdate,0);assert.equal((await w.read()).wins.firmware.status,'on');
- assert.equal(JSON.parse(io.data).autoupdatePrevious,1);
- assert.equal((await w.apply('firmware',true)).changed,false,'already off');
- r=await w.apply('firmware',false);assert.equal(t.s.autoupdate,1);assert.equal(r.changed,true);
- assert.ok(t.s.calls.every(c=>!/softwareupdate\/(enabled|updatenow|osupgrade)/.test(c)),'only the auto update key is touched');
- // A TV that does not keep the value: the previous one is restored and the error says so
- t=tv({keep:false});w=new qw.Wins(t.execute,{fs:store(),sleep:noWait});
- await assert.rejects(w.apply('firmware',true),/did not keep.*previous value restored/);assert.equal(t.s.autoupdate,1);
+ // Firmware: the whole update stack, not just the menu value
+ let r=await w.apply('firmware',true);assert.equal(r.changed,true);assert.equal(t.s.autoupdate,0);assert.equal(t.s.fwsvc,0);
+ assert.deepEqual(qw.FWUNITS.filter(u=>t.s.fwMasked[u]),qw.FWUNITS,'every update unit is masked');
+ assert.equal(t.s.markers,false,'download markers removed');
+ assert.equal((await w.read()).wins.firmware.status,'on');
+ assert.equal(JSON.parse(io.data).firmware,true);assert.equal(JSON.parse(io.data).autoupdatePrevious,1);assert.equal(JSON.parse(io.data).fwServicePrevious,1);
+ assert.equal((await w.apply('firmware',true)).changed,false,'already locked');
+ r=await w.apply('firmware',false);assert.equal(t.s.autoupdate,1);assert.equal(t.s.fwsvc,1);assert.equal(r.changed,true);
+ assert.deepEqual(Object.keys(t.s.fwMasked),[],'all masks removed');assert.equal((await w.read()).wins.firmware.status,'off');
+ assert.ok(t.s.calls.some(c=>/systemctl mask --runtime [^|]*swu-auto-upgrade\.timer[^|]* \|\| for u in /.test(c)),'the OTA scheduler is masked');
+ assert.ok(t.s.calls.some(c=>/systemctl mask --runtime [^|]*was-background-update\.service[^|]* \|\| for u in /.test(c)),'the app/package updater is masked');
+ assert.ok(t.s.calls.some(c=>/systemctl mask --runtime [^|]*appbinary-manager\.service[^|]* \|\| for u in /.test(c)),'the EMP updater is masked');
+ assert.ok(t.s.calls.every(c=>!/\/usr\/lib|\/etc\/systemd/.test(c)),'nothing on the read-only image is written');
+ // A TV that cannot mask: the lock fails and the switches it touched are put back
+ t=tv({maskFails:true});w=new qw.Wins(t.execute,{fs:store(),sleep:noWait});
+ await assert.rejects(w.apply('firmware',true),/did not keep the lock.*previous state restored/);assert.equal(t.s.autoupdate,1);assert.equal(t.s.fwsvc,1);
  t=tv({failSet:true});w=new qw.Wins(t.execute,{fs:store(),sleep:noWait});
- await assert.rejects(w.apply('firmware',true),/denied|restore not confirmed|boom|unavailable/);
+ await assert.rejects(w.apply('firmware',true),/did not keep the lock|denied|restore not confirmed/);
+ // A lock that failed is not remembered as chosen: the next boot does not mask the units again
+ t=tv({maskFails:true});io=store();w=new qw.Wins(t.execute,{fs:io,sleep:noWait});
+ await assert.rejects(w.apply('firmware',true));assert.equal(JSON.parse(io.data).firmware,false);
+ // Only runtime masks (a plain mask would outlive Vetro), and the installers are stopped too: the firmware has two boot slots
+ t=tv();w=new qw.Wins(t.execute,{fs:store(),sleep:noWait});r=await w.apply('firmware',true);
+ assert.ok(t.s.calls.every(c=>!/systemctl mask (?!--runtime)/.test(c)),'no persistent mask');
+ const stops=t.s.calls.join('\n').split('\n').filter(l=>l.includes('systemctl stop')).join('\n');
+ assert.ok(t.s.calls.filter(c=>/systemctl mask --runtime/.test(c)&&/systemctl stop/.test(c)).every(c=>c.indexOf('systemctl mask --runtime')<c.indexOf('systemctl stop')),'masked before the stops, so a timer cannot start its unit again');
+ assert.ok(/systemctl mask --runtime [^"]*swu-verifier-tv\.timer[^"]* >\/dev\/null 2>&1 \|\| for u in /.test(t.s.parseinfo)&&t.s.parseinfo.indexOf('mask --runtime')<t.s.parseinfo.indexOf('stop --no-block'),'the boot hook masks all units in one call, before its stop');
+ assert.ok(/swu-auto-upgrade\.timer/.test(stops)&&/swu-core-tv\.service/.test(stops)&&/swu-service\.service/.test(stops)&&!/bootmode-system-update/.test(stops),'the installers are stopped, the boot-mode oneshot is left to the mask');
+ // Early lock: the AT-HUB script is replaced by the awk one, the vendor original is kept and restored on Off
+ assert.equal(r.hook,true);assert.equal(t.s.hookInstalled,true);assert.equal(t.s.parseinfoBak,PARSEINFO);
+ assert.ok(t.s.parseinfo.includes('VETRO_UPDATE_LOCK_HOOK')&&/target_version/.test(t.s.parseinfo),'the replacement keeps the vendor write');
+ assert.ok(qw.FWUNITS.every(u=>t.s.parseinfo.includes(u)),'masks the same units before the boot services');
+ assert.ok(t.s.parseinfo.includes('"firmware"')&&t.s.parseinfo.includes('lock = 1')&&!/systemctl mask (?!--runtime)/.test(t.s.parseinfo),'only when the saved choice is on, runtime masks only');
+ r=await w.apply('firmware',false);assert.equal(r.changed,true);assert.equal(r.hook,false);
+ assert.equal(t.s.hookInstalled,false);assert.equal(t.s.parseinfoBak,null);assert.ok(t.s.parseinfo.startsWith('#!/bin/bash'),'the vendor script is back');
+ // A TV without parseinfo keeps the lock but cannot close the early window; an unknown script is not overwritten
+ t=tv({parseinfo:null});w=new qw.Wins(t.execute,{fs:store(),sleep:noWait});r=await w.apply('firmware',true);
+ assert.equal(r.hook,false);assert.equal(t.s.hookInstalled,false);
+ t=tv({hookAccept:false});w=new qw.Wins(t.execute,{fs:store(),sleep:noWait});r=await w.apply('firmware',true);
+ assert.equal(r.hook,false);assert.equal(t.s.parseinfoBak,null);assert.ok(t.s.parseinfo.startsWith('#!/bin/bash'),'unknown parseinfo left alone');
+ // An owner who had Auto update off before the lock keeps it off afterwards; Off means no unit masked
+ t=tv({autoupdate:0});io=store();w=new qw.Wins(t.execute,{fs:io,sleep:noWait});
+ await w.apply('firmware',true);assert.equal(JSON.parse(io.data).autoupdatePrevious,null);
+ r=await w.apply('firmware',false);assert.equal(t.s.autoupdate,0,'Auto update stays the owner\'s');assert.equal(r.status,'off');
+ // A 0.5.0 switch: Auto update off with the old value saved, nothing masked. It reads off, and Off (Restore) still puts the value back, once
+ t=tv({autoupdate:0});io=store();io.writeFileSync('x',JSON.stringify({autoupdatePrevious:1}));w=new qw.Wins(t.execute,{fs:io,sleep:noWait});
+ assert.equal((await w.read()).wins.firmware.status,'off');assert.equal((await w.read()).wins.firmware.value,0);
+ r=await w.apply('firmware',false);assert.equal(t.s.autoupdate,1,'the 0.5.0 value is put back');assert.equal(JSON.parse(io.data).autoupdatePrevious,null);
+ assert.equal((await w.apply('firmware',false)).changed,false,'and only once');
+ // A second lock over a 0 left by the first (a reboot whose re-apply failed) keeps the values saved the first time
+ t=tv();io=store();w=new qw.Wins(t.execute,{fs:io,sleep:noWait});await w.apply('firmware',true);t.s.fwMasked={};
+ await w.apply('firmware',true);assert.equal(JSON.parse(io.data).autoupdatePrevious,1);assert.equal(JSON.parse(io.data).fwServicePrevious,1);
+ // The runtime masks live in /run: the boot job puts them back once per boot, before the SWU timer (120 s)
+ let bid='fw-b1';t=tv();io=store();w=new qw.Wins(t.execute,{fs:io,sleep:noWait,bootId:()=>bid,skipAmbient:true});
+ await w.apply('firmware',true);t.s.fwMasked={};t.s.markers=true;let fwDid=await w.boot(null);
+ assert.ok(fwDid.includes('firmware'),'lock re-applied at boot');assert.deepEqual(qw.FWUNITS.filter(u=>t.s.fwMasked[u]),qw.FWUNITS);assert.equal(t.s.markers,false);
+ // A firmware update puts the vendor parseinfo.sh back: the next boot masks again and reinstalls the early hook
+ t.s.fwMasked={};t.s.parseinfo=PARSEINFO;t.s.hookInstalled=false;t.s.parseinfoBak=null;bid='fw-b1b';fwDid=await w.boot(null);
+ assert.ok(fwDid.includes('firmware'));assert.equal(t.s.hookInstalled,true);assert.equal(t.s.parseinfoBak,PARSEINFO);
+ t.s.fwMasked={};const beforeMasks=t.s.maskRuns;assert.deepEqual(await w.boot(null),[]);assert.equal(t.s.maskRuns,beforeMasks,'once per boot');
+ bid='fw-b2';t.s.fwMasked={};fwDid=await w.boot(null);assert.ok(fwDid.includes('firmware'),'next boot: again');
 
+ // Quick boot: the four markers at ~10 s, only while chosen; it shares the AT-HUB hook with the firmware lock
+ t=tv();io=store();w=new qw.Wins(t.execute,{fs:io,sleep:noWait});
+ r=await w.apply('quickboot',true);assert.equal(r.status,'on');assert.equal(r.hook,true);assert.equal(t.s.hookInstalled,true);
+ assert.equal(JSON.parse(io.data).quickboot,true);assert.ok(/graphical.target.done/.test(t.s.parseinfo)&&/quickboot/.test(t.s.parseinfo));assert.ok(/ewaiter -d \/run\/systemd\/system\/default\.target\.done/.test(t.s.parseinfo),'sets the 6.5/9 system-default event');
+ r=await w.apply('quickboot',false);assert.equal(r.status,'off');assert.equal(t.s.hookInstalled,false);assert.equal(JSON.parse(io.data).quickboot,false);
+ // With the update lock on, turning quick boot off keeps the shared hook; turning the lock off last removes it
+ t=tv();io=store();w=new qw.Wins(t.execute,{fs:io,sleep:noWait});await w.apply('firmware',true);await w.apply('quickboot',true);
+ r=await w.apply('quickboot',false);assert.equal(r.status,'off');assert.equal(t.s.hookInstalled,true,'the update lock still needs the hook');
+ r=await w.apply('firmware',false);assert.equal(t.s.hookInstalled,false,'both off: the vendor script is back');
+ // A TV without the AT-HUB script cannot use quick boot; the failed choice is not kept
+ t=tv({parseinfo:null});io=store();w=new qw.Wins(t.execute,{fs:io,sleep:noWait});
+ await assert.rejects(w.apply('quickboot',true),/not available/);assert.equal(JSON.parse(io.data).quickboot,false);
+ // At boot quick boot installs the hook without masking the update units; the firmware win does both
+ t=tv();io=store();w=new qw.Wins(t.execute,{fs:io,sleep:noWait,bootId:()=>'qb-b1',skipAmbient:true});
+ await w.apply('quickboot',true);t.s.fwMasked={};t.s.parseinfo=PARSEINFO;t.s.hookInstalled=false;
+ const qbDid=await w.boot(null);assert.ok(qbDid.includes('quickboot'));assert.equal(t.s.hookInstalled,true);assert.deepEqual(Object.keys(t.s.fwMasked),[],'quick boot alone does not mask updates');
  // MultiScreen: one file, owned by the app's group, the app is stopped now, nothing is replaced
  t=tv();io=store();w=new qw.Wins(t.execute,{fs:io,sleep:noWait});
  r=await w.apply('multiscreen',true);assert.equal(r.status,'on');assert.equal(t.s.ms,true);assert.equal(t.s.msRun,false);
@@ -136,7 +228,7 @@ const noWait=()=>Promise.resolve();
  w.remember('telemetry',true);w.busy=true;w.changing='firmware';
  assert.deepEqual(await w.boot(null),['telemetry']);assert.equal(t.s.telOffRuns,2);
  // AirPlay (idea by zabique): the flag files keep the receiver down; partial while something still runs; boot stops the web app
- assert.deepEqual(qw.parse('AP|1\nAF|1\nAS|inactive\nAW|0'),Object.assign({autoupdate:null,multiscreenFlag:null,multiscreenRunning:null,ambientRunning:null,telemetryBrakes:null,telemetryRunning:null},{airplayPresent:true,airplayFlag:true,airplayService:false,airplayWeb:false}));
+ assert.deepEqual(qw.parse('AP|1\nAF|1\nAS|inactive\nAW|0'),Object.assign({autoupdate:null,fwService:null,fwUnits:{},multiscreenFlag:null,multiscreenRunning:null,ambientRunning:null,telemetryBrakes:null,telemetryRunning:null},{airplayPresent:true,airplayFlag:true,airplayService:false,airplayWeb:false,quickbootHook:null}));
  t=tv();io=store();w=new qw.Wins(t.execute,{fs:io,sleep:noWait,bootId:()=>'ap-1',skipAmbient:true});
  assert.equal((await w.read()).wins.airplay.status,'off');
  r=await w.apply('airplay',true);assert.equal(r.status,'on');assert.equal(JSON.parse(io.data).airplay,true);

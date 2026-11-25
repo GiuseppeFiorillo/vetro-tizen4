@@ -19,14 +19,16 @@ var SAFE_PATH_RE = /^[A-Za-z0-9_.\/-]+$/;
 var SHA256_RE = /^[0-9a-f]{64}$/;
 var BUILD_INFO_RE = /module\.exports = (\{[\s\S]*\});\s*$/;
 var DEFAULT_PORT_RE = /\b8099\b/g;
-var DOCK_PATH_RE = /^native\/dock\//;
+// The launcher and the tuner are separate processes that keep running the old binary until stopped; a change to either one restarts the native parts.
+var DOCK_PATH_RE = /^native\/(?:dock|tuner)\//;
 
 var FORMAT = 'vetro-update';
 var MAX_FILES = 300;
 var MAX_BYTES = 12 * 1024 * 1024;
 var WAIT_SECONDS = 240;    // the watchdog waits this long for the new version to confirm itself
 // Only these paths can be replaced. config.xml, signatures and anything else of the package stay as installed.
-var ALLOWED = /^(?:service\/[A-Za-z0-9_.-]+\.js|native\/[A-Za-z0-9_.\/-]+|payload\/[A-Za-z0-9_.-]+|index\.html|icon\.png)$/;
+// payload/ takes subfolders (payload/net6) since 0.7.0; 0.5.x refuses them, so release.cjs keeps them out for now (#226).
+var ALLOWED = /^(?:service\/[A-Za-z0-9_.-]+\.js|native\/[A-Za-z0-9_.\/-]+|payload\/[A-Za-z0-9_.\/-]+|index\.html|icon\.png)$/;
 var DIR = /^\/[A-Za-z0-9_.\/-]+$/;
 var VERSION = /^(\d{1,4})\.(\d{1,4})\.(\d{1,4})$/;
 var SERVICE_ID = 'vetrotvapp.svc';
@@ -80,7 +82,7 @@ function verifyBundle(raw, publicKey) {
     var signed;
     try {
         var v = crypto.createVerify('RSA-SHA256');
-        v.update(b.manifest);
+        v.update(b.manifest, 'utf8');
         signed = v.verify(publicKey, b.signature, 'base64');
     } catch (e) { signed = false; }
     if (!signed) throw fail('The update is not signed by the Vetro release key', 'bad-signature');
@@ -144,8 +146,16 @@ Updater.prototype.status = function () {
         busy: this.busy,
         pending: readJson(this._file('pending.json')),
         last: readJson(this._file('result.json')),
-        canRollBack: !!readJson(this._file('backup.json'))
+        canRollBack: this._backupFits(readJson(this._file('backup.json')))
     };
+};
+// The saved files belong to one update: from one version to another. After Vetro is installed again with another version
+// (the update folder outlives an install), putting them back would lay an older version's files over the new package and
+// delete files it needs, with no watchdog behind it. So a backup counts only while this version is one of its two ends.
+Updater.prototype._backupFits = function (meta) {
+    if (!meta) return false;
+    var v = this.buildInfo.version;
+    return !v || typeof meta.from !== 'string' || typeof meta.to !== 'string' || meta.from === v || meta.to === v;
 };
 
 // What a bundle would change here, without applying it.
@@ -168,6 +178,16 @@ Updater.prototype._read = function (raw, expectedSha256) {
     }).sort();
     return parsed;
 };
+
+// The port the package was installed for, read from its config.xml (the access origin of the TV page). Apps2Samsung writes
+// a chosen port into the package's files but not into build-info.js, and a self-update never replaces config.xml: it is
+// the one place that still names the port after the service's files were swapped for ones built for 8099. Null when the
+// file says 8099 or cannot be understood.
+var ACCESS_PORT_RE = /<access\s+origin="http:\/\/127\.0\.0\.1:(\d{4,5})"/;
+function packagePort(configXml) {
+    var m = ACCESS_PORT_RE.exec(String(configXml || '')), port = m ? Number(m[1]) : 0;
+    return port >= 1024 && port <= 65535 && port !== 8099 && port !== 8001 && port !== 8002 ? port : null;
+}
 
 // What is specific to this installation survives the update: a port chosen at install time.
 Updater.prototype._adapt = function (files) {
@@ -207,6 +227,12 @@ Updater.prototype.apply = function (raw, expectedSha256) {
     var from = this.buildInfo.version, to = parsed.manifest.version, changed = parsed.changed;
     var dock = changed.some(function (n) { return DOCK_PATH_RE.test(n); });
     return Promise.resolve().then(function () {
+        // The script is built first: if it cannot be (an unsafe path), nothing is staged or saved.
+        var existing = changed.filter(function (n) { return fs.existsSync(path.join(self.installDir, n)); });
+        var added = changed.filter(function (n) { return existing.indexOf(n) < 0; });
+        var hashes = {};
+        changed.forEach(function (n) { hashes[n] = sha256(parsed.files[n]); });
+        var script = self._applyScript(from, to, changed, existing, added, hashes, dock);
         var staging = self._file('staging');
         rmrf(staging);
         mkdirp(staging);
@@ -214,14 +240,10 @@ Updater.prototype.apply = function (raw, expectedSha256) {
             mkdirp(path.dirname(path.join(staging, n)));
             fs.writeFileSync(path.join(staging, n), parsed.files[n]);
         });
-        var existing = changed.filter(function (n) { return fs.existsSync(path.join(self.installDir, n)); });
-        var added = changed.filter(function (n) { return existing.indexOf(n) < 0; });
-        writeJson(self._file('backup.json'), { from: from, to: to, files: existing, added: added, dock: dock });
-        var hashes = {};
-        changed.forEach(function (n) { hashes[n] = sha256(parsed.files[n]); });
-        return self.execute(self._applyScript(from, to, changed, existing, added, hashes, dock), 120000);
+        writeJson(self._file('backup.json.next'), { from: from, to: to, files: existing, added: added, dock: dock });
+        return self.execute(script, 120000);
     }).then(function (r) {
-        if (!r || r.exit_code || r.timed_out) throw fail('The files could not be replaced' + (r && r.stderr ? ': ' + String(r.stderr).trim().slice(0, 200) : ''), 'apply-failed');
+        if (!r || r.exit_code !== 0 || r.timed_out) throw fail('The files could not be replaced' + (r && r.stderr ? ': ' + String(r.stderr).trim().slice(0, 200) : ''), 'apply-failed');
         return { ok: true, from: from, to: to, changed: changed.length, restarting: true,
             note: 'Vetro restarts in a few seconds; if the new version does not start it is put back automatically' };
     }).then(function (res) { self.busy = false; return res; }, function (e) { self.busy = false; throw e; });
@@ -232,11 +254,14 @@ Updater.prototype.apply = function (raw, expectedSha256) {
 Updater.prototype._applyScript = function (from, to, changed, existing, added, hashes, dock) {
     var I = sq(this.installDir), W = sq(this.workDir);
     var lines = ['set -e', 'I=' + I, 'W=' + W, 'S="$W/staging"', 'B="$W/backup"',
-        'rm -rf "$B"; mkdir -p "$B"; rm -f "$W"/ok-* "$W/pending.json"'];
+        'rm -rf "$B"; mkdir -p "$B"; rm -f "$W"/ok-* "$W/pending.json" "$W/backup.json"'];
     changed.forEach(function (n) {
         lines.push('[ "$(sha256sum "$S/' + n + '" | cut -d" " -f1)" = "' + hashes[n] + '" ] || { echo "staged file changed: ' + n + '" >&2; exit 3; }');
     });
     existing.forEach(function (n) { lines.push('mkdir -p "$B/' + path.dirname(n) + '"; cp -p "$I/' + n + '" "$B/' + n + '"'); });
+    // The list of what Go back restores appears only now, with the backup it names: a script that never ran (the TV busy, the agent
+    // gone) or stopped before this line leaves no list, so Go back is not offered over files of an older update.
+    lines.push('mv -f "$W/backup.json.next" "$W/backup.json"');
     // The copy is one && chain, not `set -e` lines: if a copy fails half way (disk full, a read-only folder) the files already
     // replaced are put back at once, because no watchdog exists yet at this point and a mix of old and new files would
     // otherwise stay until the next restart. (`set -e` is ignored inside an `||` list, so the chain is explicit.)
@@ -273,6 +298,7 @@ Updater.prototype.rollback = function () {
     var meta = readJson(this._file('backup.json'));
     if (!meta || !Array.isArray(meta.files) || !Array.isArray(meta.added)) return Promise.reject(fail('There is no previous version to go back to', 'no-backup'));
     if (!meta.files.concat(meta.added).every(okPath)) return Promise.reject(fail('The saved list is not valid', 'bad-backup'));
+    if (!this._backupFits(meta)) return Promise.reject(fail('The saved files are from another version of Vetro (' + meta.from + ' to ' + meta.to + '), not from this one', 'other-backup'));
     if (this.busy) return Promise.reject(fail('An update is already in progress', 'busy'));
     var self = this;
     this.busy = true;
@@ -282,7 +308,7 @@ Updater.prototype.rollback = function () {
     lines.push("echo '" + JSON.stringify({ state: 'rolled-back', from: meta.to, to: meta.from, at: Date.now() }) + "' > \"$W/result.json\"",
         detached('sleep 3; ' + this.restartCommand), 'exit 0');
     return this.execute(lines.join('\n') + '\n', 60000).then(function (r) {
-        if (!r || r.exit_code || r.timed_out) throw fail('The previous files could not be put back', 'rollback-failed');
+        if (!r || r.exit_code !== 0 || r.timed_out) throw fail('The previous files could not be put back', 'rollback-failed');
         return { ok: true, from: meta.to, to: meta.from, restarting: true };
     }).then(function (res) { self.busy = false; return res; }, function (e) { self.busy = false; throw e; });
 };
@@ -321,5 +347,5 @@ Updater.prototype.finish = function (restartDock) {
     });
 };
 
-module.exports = { Updater: Updater, verifyBundle: verifyBundle, compare: compare, okPath: okPath, sha256: sha256,
+module.exports = { Updater: Updater, packagePort: packagePort, verifyBundle: verifyBundle, compare: compare, okPath: okPath, sha256: sha256,
     parseBuildInfo: parseBuildInfo, ALLOWED: ALLOWED, FORMAT: FORMAT };

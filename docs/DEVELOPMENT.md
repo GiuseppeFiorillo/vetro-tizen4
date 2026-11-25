@@ -1,51 +1,98 @@
 # Development
 
-[Back to Vetro](../README.md)
+## Requirements
 
-## Host requirements
-
-- Node.js 22 for application tests, package building and signing.
-- Python 3.11+ and a POSIX shell for the optional boot-hook tools and offline tests.
-- .NET SDK 8 to build the launcher. Its desktop test project targets .NET 10; install SDK 10 to run it as configured.
-- Your own Samsung author and distributor certificates for TV installation.
-
-The scripts use the repository's relative paths. Linux and macOS hosts are intended to work; the physical TV validation used macOS. No personal SDK installation paths or signing profiles are required.
-
-## Tests
-
-From the repository root:
+Use Node.js 22, Linux with SQLite/OpenSSL/Python 3 for the full app suite, and
+.NET SDK 10 for desktop launcher checks. Node 4.4.3 is needed to check the actual
+legacy runtime. The tested TV uses Bash as /bin/sh; run the integration tests in
+a disposable environment with that layout. A separate Dash fallback is covered.
+Tests use temporary files and mock services, never a TV.
+Some adapter/kernel-identity fixtures need root to validate a root AUTH PID.
+Run those in a disposable root container/runner, as CI does.
 
 ```sh
-node app/tests/run.cjs
-node rooting/tests/run.cjs
-node --test chain/tests/*.test.cjs
-python3 .github/scripts/test_parse_log.py
-python3 .github/scripts/audit_release.py
-(cd kant-m2-root && ./check.sh)
-dotnet run -c Release --project dock/tests
+npm test
+npm run test:chain
+npm run test:native
+/path/to/node-v4.4.3 tools/check-node4.js
+npm run audit
 ```
 
-The Python integration tests and launcher desktop tests use temporary files and fake services. They do not connect to a TV. Hardware results must be reported separately from offline test results.
+## Standalone build
 
-## Build the Tizen 4 package
+No Samsung firmware is stored here. Supply your own original startup script
+outside the repository. Wrong or missing inputs fail closed before output creation.
 
 ```sh
-sh dock/build.sh
-node chain/build.cjs
-(cd rooting/on-boot-probe && npm ci)
-AUTHOR_P12=/path/to/author.p12 DIST_P12=/path/to/distributor.p12 \
-AUTHOR_PW='your-author-password' DIST_PW='your-distributor-password' \
-node chain/sign.cjs
+VETRO_VENDOR_SCRIPT=/absolute/private/parseinfo.sh npm run build
+node tools/test-recovery-home.cjs out/build-TIMESTAMP/current
 ```
 
-Use a local secret-management workflow for actual passwords. Do not commit certificates, passwords or signed packages. The signing script requires all four environment variables and makes no assumptions about the host's certificate directory.
+PowerShell:
 
-`dock/build.sh` updates the launcher assemblies in `app/native/dock/`; rebuild them after changing C# sources. `chain/build.cjs` produces `chain/dist/vetro-chain-unsigned.wgt`, while `chain/sign.cjs` produces the signed package. Existing native payloads under `app/native/` and `rooting/payload/` are packaging inputs; SDK `bin/` and `obj/` directories are generated outputs.
+```powershell
+$env:VETRO_VENDOR_SCRIPT = 'D:\private\parseinfo.sh'
+npm run build
+```
 
-For installation, boot-hook setup and removal, see the [installation guide](../app/docs/INSTALLATION.md). Building or testing does not install anything on a TV.
+Output includes private vendor bytes and must not be committed. Identical inputs
+must produce identical payload hashes. The checked-in profiles/tested-payload.json
+contains only tested output hashes; runtime-invariants.json protects root/Home-key code.
+
+The recovery integration test executes the generated service command against a
+fake native launcher on Linux. It covers cold/warm activation, native launch
+failure and retention of paired maintenance. It never executes a TV command on a device.
+
+## Native rebuilds
+
+Changing native sources makes packaging fail until matching artifacts are rebuilt
+and the manifest reviewed. Do not refresh checksums merely to bypass that check.
+
+With SDK 10, Python 3, a POSIX shell and privately supplied .NET Core 2 reference DLLs:
+
+```sh
+VETRO_NET2_REFS=/absolute/private/netcore2-refs sh tools/build-native.sh
+```
+
+This writes out/native-compile without replacing pinned artifacts. Compare outputs,
+review source/artifact hashes, then update native/current/manifest.json and the
+corresponding package inputs together. Reference DLLs are not distributed.
+Managed compilation does not validate native ABI or hardware behavior.
+
+The .NET 3.1 launcher for newer TVs (app/native/dock/tvlauncher-dotnet.dll) is
+built from the same sources by the netcoreapp3.1 step of dock/build.sh. That step
+is deterministic and maps the checkout path away, so .NET SDK 10.0.404 reproduces
+the shipped file byte for byte. The .NET 2 launcher comes from
+tools/build-native.sh only; the netcoreapp2.0 step in dock/build.sh does not
+produce the pinned artifact, and the audit refuses a mismatched copy.
+
+The launcher's Home diagnostics are opt-in: with --debug-guard it writes
+tvlauncher.guard.log and, on the legacy runtime, a shell trace of the Samsung Home
+launch to tvlauncher.home-child.log (cleared above 32 KiB).
+
+Modern launcher/tuner sources retain their upstream build scripts. The tuner
+requires an owner-supplied Samsung TV client reference and .NET 3.1; it is not
+ported to .NET 2. Do not distribute Samsung reference DLLs.
+
+## Optional WGT tools
+
+These are separate from the Developer-Mode-free standalone runtime:
+
+```sh
+npm run build:app
+npm run build:chain
+npm ci --prefix chain/signing
+AUTHOR_P12=/private/author.p12 DIST_P12=/private/distributor.p12 \
+AUTHOR_PW='local-secret' DIST_PW='local-secret' node chain/sign.cjs
+```
+
+The app-only widget has no root integration; the chain widget adds the legacy
+adapter. Signing dependencies have their own lockfile. Certificates/passwords stay
+local; signed packages are ignored. These tools do not install or obtain root.
 
 ## Publication
 
-Use a source checkout for GitHub, rather than an archive containing runtime state. `.gitignore` excludes generated packages, signing material, host logs and add-on state. Before initializing Git, run `python3 .github/scripts/audit_release.py --source-tree`. In a Git checkout, the same audit without that flag checks tracked files. Check `git status --short` and review staged changes before publishing. Keep personal TV reports and raw logs out of commits, and retain upstream attribution and third-party licenses.
-
-The root README describes this fork. Upstream integration and research documentation under `rooting/` may describe other TV generations; it does not extend the validated compatibility of the Tizen 4 port.
+Run the audit, tests and a private-input build before publishing. Public CI runs
+source, app, adapter and native logic checks; full standalone builds require the
+owner's private vendor input. Review staged files. Firmware, reference packs, raw
+logs, credentials and generated payloads do not belong in Git.

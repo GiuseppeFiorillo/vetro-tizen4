@@ -13,31 +13,67 @@ var RESTORE_FLAGS_FOR_RE = /^(\S+) (\d+|none)$/;
 // except the ones that role "keep" or the protection rules cover (Smart Hub's ad agent, Vetro itself).
 var GROUPS = [
     {id: 'tracking-all', label: 'All advertising and tracking', section: 'tracking', area: 'tracking',
-        description: 'Every component the Task manager lists under Advertising and tracking: viewing data, ad players, analytics, personalised content and the privacy screens. Smart Hub’s ad agent stays on because Home loads part of it.',
+        description: 'Stops viewing data, ad players, analytics, personalised content and privacy screens. Samsung Home still uses Smart Hub’s ad agent.',
         ids: []},
     {id: 'voice-all', label: 'All voice assistants', section: 'voice', area: 'voice', microphone: true, everything: true,
-        description: 'Every component the Task manager lists under Voice assistants: Alexa, Bixby, Google Assistant, the assistant hub, always-on voice, speech and text-to-speech, voice actions and search suggestions.',
+        description: 'Stops Alexa, Bixby, Google Assistant and shared voice services, including search suggestions.',
         ids: []},
     {id: 'alexa', label: 'Alexa', section: 'voice', microphone: true,
-        description: 'Alexa client, its full-screen view, launcher and wake-word engine.',
+        description: 'Stops Alexa and its wake word.',
         ids: ['com.samsung.tv.alexa-client', 'com.samsung.tv.alexa-fullscreen-app', 'com.samsung.tv.alexa-jump-starter',
             'com.samsung.tv.wakeup-engine-alexa']},
     {id: 'google', label: 'Google Assistant', section: 'voice', microphone: true,
-        description: 'Google Assistant service and its full-screen view.',
+        description: 'Stops Google Assistant and its full-screen view.',
         ids: ['com.samsung.tv.google-assistant', 'com.samsung.tv.google-fullscreen-app']},
     {id: 'bixby', label: 'Bixby', section: 'voice', microphone: true,
-        description: 'Bixby clients, voice discovery menu, capsule viewer and wake-word engine.',
+        description: 'Stops Bixby, its voice menus and wake word.',
         ids: ['com.samsung.tv.bixby-context-client', 'com.samsung.tv.bixby-prov', 'com.samsung.tv.bixbycapsuleviewer',
             'com.samsung.tv.mybixby', 'com.samsung.tv.wakeup-engine-bixby']},
     {id: 'voice', label: 'Voice services', section: 'voice', microphone: true,
-        description: 'Voice interaction framework, speech-to-text, far-field and on-device voice, voice app and music assistant.',
+        description: 'Stops speech-to-text, hands-free voice and other voice services.',
         ids: ['com.samsung.tv.vif', 'com.samsung.tv.farfieldvoice', 'com.samsung.tv.ondevice-voice',
             'com.samsung.tv.voiceassistant-music', 'com.samsung.tv.cnvoice', 'com.samsung.tv.cnvoice-assistant',
             'org.tizen.voice-app', 'org.tizen.voice-app-service', 'org.tizen.voice-client', 'org.tizen.stt-client']},
+    // Samsung TV Plus (free ad-supported channels): the app, its deep-link and OTA helpers, and the two services behind it.
+    // slive-provider-daemon and bms-service are started by systemd with Restart=always, so a disabled flag is not enough:
+    // Samsung's own units skip the start when a file exists in /opt/usr/share/systemd/system, which `services` lists.
+    // These packages are not system packages, so Components can also uninstall them (pkgcmd -u).
+    {id: 'tvplus', label: 'Samsung TV Plus', section: 'memory',
+        description: 'The app, its helpers, the channel service and the streaming player with its ad beacons. Stops Samsung TV Plus and its background services. Frees about 25 MB.',
+        ids: ['com.samsung.tv.tvplus', 'com.samsung.tv.tvPlusDeeplinker', 'w2VwCK465D.OTApp', 'com.samsung.tv.slive-daemon', 'org.tizen.bms-service'],
+        services: ['slive-provider-daemon', 'bms']},
+    // Vision AI (2024 and later TVs): holding Home for a second sends the AI key, the key of the AI button on 2025 remotes,
+    // and these apps answer it with Click to Search or the AI companion. Bixby and the voice apps play no part in it. With them off
+    // the key opens nothing; a short Home press is unchanged. Kept on: the Vision AI row of Samsung's Home (visionairow), live
+    // translation and the AI picture and sound settings. Most TVs have none of these apps, so the switch only shows where they are.
+    {id: 'vision-ai', label: 'Vision AI', section: 'memory', onlyInstalled: true,
+        description: 'Holding Home, or pressing the remote’s AI button, no longer opens Samsung’s AI screens (Click to Search and the AI companion). Nothing opens in their place.',
+        ids: ['com.samsung.tv.AICompanionAgent', 'com.samsung.tv.AICompanionUI', 'com.samsung.tv.AICompanionUILauncher', 'com.samsung.tv.AICompanionUINotice',
+            'com.samsung.tv.ai-discovery-ui', 'com.samsung.tv.ai-discovery-service', 'com.samsung.tv.ai-discovery-sceneanalyzer', 'com.samsung.tv.download-content']},
+    // Apps that come with the TV and that Samsung's own Apps screen does not let you delete. One switch each (section
+    // "apps", the second group of the Disable tab): the app is disabled like any member of a group, and the same switch,
+    // or Restore the TV, enables it again. The ids are the Q80A's; a TV without the app does not show its switch. The row
+    // has no description: the group's one sentence says what a disabled app means.
+    {id: 'app-netflix', label: 'Netflix', section: 'apps', description: '', ids: ['org.tizen.netflix-app', 'org.tizen.netflixlowmem']},
+    {id: 'app-primevideo', label: 'Prime Video', section: 'apps', description: '',
+        ids: ['org.tizen.primevideo', 'org.tizen.primevideo-dummy', 'org.tizen.primevideo_companionapp']},
+    {id: 'app-youtube', label: 'YouTube', section: 'apps', description: '', ids: ['9Ur5IzDKqV.TizenYouTube']},
+    {id: 'app-appletv', label: 'Apple TV', section: 'apps', description: '', ids: ['com.samsung.tv.aria-video', 'com.samsung.tv.aria-dummy']},
+    {id: 'app-browser', label: 'Internet browser', section: 'apps', description: '', ids: ['org.tizen.browser']},
+    {id: 'app-gallery', label: 'Gallery', section: 'apps', description: '', ids: ['com.samsung.tv.gallery']},
+    // The same apps the Uninstall tab offers, for people who would rather switch them off: each with the background service its package
+    // starts (seen in the 88 diagnostics of 2026-11-18: Disney+ on 49 TVs, Spotify 57, Xbox 29, GeForce NOW and Amazon Luna 10, Samsung Health 14).
+    {id: 'app-disney', label: 'Disney+', section: 'apps', description: '', ids: ['MCmYXNxgcu.DisneyPlus', 'MCmYXNxgcu.DisneyPlusService']},
+    {id: 'app-spotify', label: 'Spotify', section: 'apps', description: '',
+        ids: ['rJeHak5zRg.Spotify', 'rJeHak5zRg.SpotifyService', 'rJeHak5zRg.ContinueWatchingService']},
+    {id: 'app-xbox', label: 'Xbox', section: 'apps', description: '', ids: ['GHI3a0zMSx.XboxGamePass', 'GHI3a0zMSx.Service']},
+    {id: 'app-geforce', label: 'GeForce NOW', section: 'apps', description: '', ids: ['w0wZu3xkQq.GeForceNOW', 'w0wZu3xkQq.GeForceNOWService']},
+    {id: 'app-luna', label: 'Amazon Luna', section: 'apps', description: '', ids: ['CmeyUlnhYY.LunaWebApp', 'CmeyUlnhYY.LunaService']},
+    {id: 'app-health', label: 'Samsung Health', section: 'apps', description: '', ids: ['com.samsung.tv.samsung-health']},
     // For people who run a third-party launcher: the Home key stops opening Samsung's Home. It does not turn on the
     // Vetro launcher (Launcher tab), which is a separate choice. The Home key has to be mapped to the other launcher by hand.
     {id: 'samsung-home', label: 'Samsung Home', section: 'home', confirm: true,
-        description: 'Disables Samsung’s Home (First Screen, com.samsung.tv.csfs), so that the Home key no longer opens it. It does not turn on the Vetro launcher. Warning: the TV’s boot script keeps retrying to start this app, so on a Q80A (checked on firmware 2310.0) the TV may never finish starting while it is disabled, and getting out of that needs a factory reset. Turn it back on before you restart or switch off the TV. To use another launcher safely, use the Custom launcher in the Launcher tab instead: it leaves Samsung’s Home enabled.',
+        description: 'Home stops opening Samsung Home. On a Q80A the TV may stall at startup and need a factory reset. Turn Samsung Home back on before restarting. For another launcher, use Vetro UI → Launcher.',
         ids: ['com.samsung.tv.csfs']}
 ];
 var ALLOWED_IDS = GROUPS.reduce(function (all, g) { return all.concat(g.ids); }, []);
@@ -93,6 +129,15 @@ function restoreFlagsCommand(ids) {
         ' case "$on" in true|false) ;; *) on=false;; esac\n case "$re" in true|false) ;; *) re=false;; esac\n' +
         ' q "BEGIN IMMEDIATE; UPDATE package_app_info SET app_onboot=\'$on\',app_autorestart=\'$re\' WHERE app_id=\'$id\'; COMMIT;" >/dev/null 2>&1; r=$?\n' +
         ' [ $r -eq 0 ] && rm -f "$f"; echo "$id $r"\ndone');
+}
+var SERVICE_DIR = '/opt/usr/share/systemd/system/', SERVICE_RE = /^[a-z0-9-]{1,40}$/;
+// Off: put Samsung's own "do not start" file down and stop the unit. On: take the file away and start it again.
+function servicesCommand(units, off) {
+    units.forEach(function (u) { if (!SERVICE_RE.test(u)) throw new Error('Invalid service'); });
+    var files = units.map(function (u) { return SERVICE_DIR + u; }).join(' ');
+    return wrap(off
+        ? 'touch ' + files + '\nfor u in ' + units.join(' ') + '; do systemctl stop --no-block $u 2>/dev/null; done\nsleep 1\ntrue'
+        : 'rm -f ' + files + '\nsystemctl reset-failed 2>/dev/null\nfor u in ' + units.join(' ') + '; do systemctl start --no-block $u 2>/dev/null; done\nsleep 1\ntrue');
 }
 function stopCommand(ids) {
     ids.forEach(function (id) { if (!ID.test(id)) throw new Error('Invalid app ID'); });
@@ -196,9 +241,15 @@ function apply(groupId, off, deps) {
     }).then(function (apps) {
         var result = {ok: true, verified: true, id: group.id, off: off, changed: targets, flagsCleared: off ? flagTargets : [], flagsRestored: [], flagsNotRestored: [],
             stopped: [], stopFailed: [], state: state(group, apps), apps: apps};
-        if (!off) return restoreFlagsFor(result, deps);
+        function services() {
+            if (!group.services) return Promise.resolve();
+            return deps.execute(servicesCommand(group.services, off), 30000).then(function (r) {
+                result.services = {off: off, ok: !r.exit_code && !r.timed_out};
+            }, function () { result.services = {off: off, ok: false}; });
+        }
+        if (!off) return services().then(function () { return restoreFlagsFor(result, deps); });
         // A disabled flag does not end processes that are already running.
-        return deps.execute('app_launcher -S', 10000).then(function (r) {
+        return services().then(function () { return deps.execute('app_launcher -S', 10000); }).then(function (r) {
             if (r.exit_code || r.timed_out) throw new Error('running apps unreadable');
             var ids = running(r.stdout).filter(function (id) { return result.state.installed.indexOf(id) >= 0; });
             if (!ids.length) return result;
@@ -212,4 +263,4 @@ function apply(groupId, off, deps) {
 }
 
 module.exports = {GROUPS: GROUPS, ALLOWED_IDS: ALLOWED_IDS, find: find, state: state, command: command,
-    stopCommand: stopCommand, clearFlagsCommand: clearFlagsCommand, restoreFlagsCommand: restoreFlagsCommand, exitCodes: exitCodes, running: running, apply: apply};
+    stopCommand: stopCommand, servicesCommand: servicesCommand, clearFlagsCommand: clearFlagsCommand, restoreFlagsCommand: restoreFlagsCommand, exitCodes: exitCodes, running: running, apply: apply};

@@ -112,3 +112,38 @@ function harness(opts){
  assert.ok(quick.ALLOWED_IDS.includes('com.samsung.tv.csfs'));
  assert.equal(quick.state(g,[{appId:'com.samsung.tv.csfs',disabled:true,onboot:false,autorestart:false}]).status,'off');
  assert.equal(quick.state(g,[{appId:'com.samsung.tv.csfs',disabled:false}]).status,'on');}
+
+// Apps that come with the TV: one switch each in a section of their own, plain groups (no microphone, no confirmation,
+// no services), with ids nobody protects; an app that is not on the TV reads "unavailable" (the page then hides it).
+{const apps=quick.GROUPS.filter(g=>g.section==='apps');
+ assert.deepEqual(apps.map(g=>g.id),['app-netflix','app-primevideo','app-youtube','app-appletv','app-browser','app-gallery','app-disney','app-spotify','app-xbox','app-geforce','app-luna','app-health']);
+ // A package's background service goes with its app; a TV that has the app without one of the services still reads on/off from what it has.
+ const spotify=quick.find('app-spotify');
+ assert.ok(spotify.ids.includes('rJeHak5zRg.SpotifyService'));
+ assert.equal(quick.state(spotify,[{appId:'rJeHak5zRg.Spotify',disabled:true,onboot:false,autorestart:false},{appId:'rJeHak5zRg.SpotifyService',disabled:true,onboot:false,autorestart:false}]).status,'off','no ContinueWatchingService on this TV');
+ const debloat=require('../service/debloat.js');
+ apps.forEach(g=>{assert.ok(g.ids.length&&!g.microphone&&!g.confirm&&!g.services&&g.description==='',g.id);
+  g.ids.forEach(id=>{assert.ok(quick.ALLOWED_IDS.includes(id),id);assert.ok(!debloat.isProtected(id),id+' is not protected');});});
+ const netflix=quick.find('app-netflix');
+ assert.equal(quick.state(netflix,[{appId:'org.tizen.netflix-app',disabled:false}]).status,'on');
+ assert.equal(quick.state(netflix,[{appId:'org.tizen.netflix-app',disabled:true,onboot:false,autorestart:false}]).status,'off');
+ assert.equal(quick.state(netflix,[{appId:'some.other.app',disabled:false}]).status,'unavailable','not on this TV');
+ assert.equal(quick.state(quick.find('app-primevideo'),[{appId:'org.tizen.primevideo',disabled:true,onboot:false,autorestart:false},{appId:'org.tizen.primevideo-dummy',disabled:false}]).status,'partial');}
+
+{const g=quick.find('tvplus');
+ assert.equal(g.section,'memory');assert.ok(!g.microphone&&!g.confirm);
+ assert.deepEqual(g.ids,['com.samsung.tv.tvplus','com.samsung.tv.tvPlusDeeplinker','w2VwCK465D.OTApp','com.samsung.tv.slive-daemon','org.tizen.bms-service']);
+ assert.deepEqual(g.services,['slive-provider-daemon','bms']);
+ g.ids.forEach(id=>assert.ok(quick.ALLOWED_IDS.includes(id),id));
+ const off=decode(quick.servicesCommand(g.services,true)),on=decode(quick.servicesCommand(g.services,false));
+ assert.ok(off.startsWith('touch /opt/usr/share/systemd/system/slive-provider-daemon /opt/usr/share/systemd/system/bms')&&/systemctl stop --no-block/.test(off));
+ assert.ok(on.startsWith('rm -f /opt/usr/share/systemd/system/slive-provider-daemon /opt/usr/share/systemd/system/bms')&&/systemctl start --no-block/.test(on));
+ assert.throws(()=>quick.servicesCommand(['x; reboot'],true),/Invalid service/);}
+// Vision AI: the apps that answer the AI key (held Home, the AI button), shown only where they are; Samsung Home's Vision AI row,
+// live translation and the AI picture and sound settings stay out of it.
+{const g=quick.find('vision-ai');
+ assert.equal(g.section,'memory');assert.equal(g.onlyInstalled,true);
+ assert.ok(g.ids.includes('com.samsung.tv.AICompanionUI')&&g.ids.includes('com.samsung.tv.ai-discovery-ui'));
+ ['com.samsung.tv.visionairow','com.samsung.tv.ai-interpreter-service','org.tizen.aitech_daemon_service','com.samsung.tv.coba.setting.aitech'].forEach(id=>assert.ok(!g.ids.includes(id),id));
+ assert.equal(quick.state(g,[{appId:'org.tizen.tv-viewer',disabled:false}]).status,'unavailable','a TV without the apps');
+ assert.equal(quick.state(g,g.ids.slice(0,3).map(id=>({appId:id,disabled:true,onboot:false,autorestart:false}))).status,'off');}

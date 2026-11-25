@@ -4,6 +4,8 @@
 *.sh text eol=lf
 *.cjs text eol=lf
 *.js text eol=lf
+*.json text eol=lf
+*.tsv text eol=lf
 *.png binary
 *.dll binary
 app/diagnostics/** export-ignore
@@ -25,3 +27,11 @@ kant-m2-root/out/** export-ignore
 dock/**/bin/** export-ignore
 dock/**/obj/** export-ignore
 .impeccable/** export-ignore
+
+# Tizen 4 port: more binary assets, and LF for the standalone runtime units and scripts the TV executes.
+*.jpg binary
+*.jpeg binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+overlay/** text eol=lf

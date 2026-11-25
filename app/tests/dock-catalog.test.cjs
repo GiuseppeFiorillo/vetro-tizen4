@@ -41,9 +41,9 @@ assert.deepEqual(built.skipped.map(s => s.item + ':' + s.reason), [
 const text = catalog.tsv(built);
 const lines = text.trim().split('\n');
 assert.ok(lines[0].startsWith('#'));
-assert.equal(lines[1], 'tvplus\tSamsung TV Plus\torg.tizen.tv-viewer\t\t/opt/usr/apps/com.samsung.tv.tvplus/shared/res/tvplus.png');
-assert.equal(lines[2], 'livetv\tLive TV\torg.tizen.tv-viewer', 'no icon: no trailing tabs');
-assert.deepEqual(lines.slice(-2), ['settings\tSettings\tkey:XF86SysMenu\torg.tizen.menu', 'samsunghome\tSamsung Home\tsys:com.samsung.tv.csfs'], 'two pills close the row: Settings (the System Menu key) and Samsung Home');
+assert.equal(lines[1], 'tvplus\tSamsung TV Plus\torg.tizen.tv-viewer\t\t/opt/usr/apps/com.samsung.tv.tvplus/shared/res/tvplus.png\t\t\tlive:TVPLUS', 'the eighth column is the row key');
+assert.equal(lines[2], 'livetv\tLive TV\tsource:0\t\t\t\t\tlive:RF', 'Live TV switches to the TV input (the tuner covers that input only); no icon: empty columns up to the row key');
+assert.deepEqual(lines.slice(-2), ['allapps\tAll apps\tpanel:allapps', 'samsunghome\tSamsung Home\tsys:com.samsung.tv.csfs'], 'two pills close the row: All apps (its page ends with Settings and the App store) and Samsung Home');
 lines.slice(1).forEach(l => assert.ok(l.split('\t').length >= 3, 'every line has slug, label and app id: ' + l));
 
 // Names that would break the file or the dock
@@ -85,12 +85,31 @@ assert.equal(fixed.entries[0].icon, '/opt/share/webappservice/apps_icon/all/yt/2
 assert.equal(fixed.entries[0].label, 'TizenTube', 'the name is left alone');
 assert.equal(fixed.entries[1].killFirst, null, 'other apps are untouched');
 assert.equal(fixed.entries[1].icon, plain.entries[1].icon);
-assert.equal(catalog.tsv(fixed).split('\n')[1], 'tizentube\tTizenTube\txvvl3S1TT1.TizenTubeStandalone\t\t/opt/share/webappservice/apps_icon/all/yt/224x224.png\tcom.samsung.tv.cobalt-yt');
-assert.equal(catalog.tsv(plain).split('\n')[1].split('\t').length, 5, 'no sixth column when off');
+assert.equal(catalog.tsv(fixed).split('\n')[1], 'tizentube\tTizenTube\txvvl3S1TT1.TizenTubeStandalone\t\t/opt/share/webappservice/apps_icon/all/yt/224x224.png\tcom.samsung.tv.cobalt-yt\t\tapp:xvvl3S1TT1.TizenTubeStandalone');
+assert.equal(catalog.tsv(plain).split('\n')[1].split('\t')[5], '', 'no app to close first when off');
 const noYt = catalog.build(Object.assign({}, tt, {icons: {tt: tt.icons.tt}}), {fixTizenTube: true});
 assert.equal(noYt.entries[0].killFirst, 'com.samsung.tv.cobalt-yt', 'still closes YouTube first');
 assert.equal(noYt.entries[0].icon, tt.icons.tt, 'without a YouTube icon the app keeps its own');
 assert.ok(noYt.skipped.some(x => /No YouTube icon/.test(x.reason)));
+
+// Samsung's YouTube: the Home row lists widget 111299001912, the wrapper app and its registry row are gone, Cobalt YouTube is installed
+const pkgs = {}; for (let i = 0; i < 25; i++) pkgs['p.' + i] = true;
+const ytGone = {order: ['d/webapp@111299001912', 'd/webapp@aaa'], icons: {'111299001912': '/opt/share/webappservice/apps_icon/all/111299001912/224x224.png'}, packageIcons: {},
+    registry: {aaa: {title: 'Netflix', appId: 'org.tizen.netflix-app', hidden: false}}, installed: Object.assign({'com.samsung.tv.cobalt-yt': true, 'org.tizen.netflix-app': true}, pkgs), installedCount: 27};
+const ytBuilt = catalog.build(ytGone);
+assert.equal(ytBuilt.entries[0].appId, 'com.samsung.tv.cobalt-yt', 'YouTube is started through the Cobalt app');
+assert.equal(ytBuilt.entries[0].label, 'YouTube');
+assert.equal(ytBuilt.entries[0].icon, '/opt/share/webappservice/apps_icon/all/111299001912/224x224.png');
+assert.equal(ytBuilt.skipped.length, 0, 'shown, so not listed as skipped');
+const ytNoCobalt = catalog.build(Object.assign({}, ytGone, {installed: Object.assign({'org.tizen.netflix-app': true}, pkgs), installedCount: 26}));
+assert.equal(ytNoCobalt.entries.length, 1, 'no Cobalt app: the row stays out');
+assert.equal(ytNoCobalt.skipped[0].reason, 'Not installed');
+const ytShort = catalog.build(Object.assign({}, ytGone, {installedCount: 3}));
+assert.equal(ytShort.entries.length, 1, 'a short package list is not trusted: the row stays out');
+// Same fallback when the wrapper package was uninstalled but its widgetinfo row remained in webappservice.db
+const ytStaleReg = catalog.build(Object.assign({}, ytGone, {registry: Object.assign({'111299001912': {title: 'YouTube', appId: '9Ur5IzDKqV.TizenYouTube', hidden: false}}, ytGone.registry)}));
+assert.equal(ytStaleReg.entries[0].appId, 'com.samsung.tv.cobalt-yt', 'stale wrapper registry row still falls back to Cobalt YouTube');
+assert.equal(ytStaleReg.skipped.length, 0);
 
 // load(): one read of the Home data, one check that the icon files exist; errors are explicit
 (async function () {
@@ -111,10 +130,10 @@ assert.ok(noYt.skipped.some(x => /No YouTube icon/.test(x.reason)));
     assert.ok(!/-readonly|\b(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE)\b/i.test(seen[0]), 'the TV sqlite3 has no -readonly; the statements are plain SELECTs');
     assert.ok(!ok.tsv.includes(missing), 'an icon file that is gone is not listed');
     const alt = '/opt/usr/apps/com.samsung.tv.tvPlusDeeplinker/shared/res/TVPlus_app_icon.png';
-    assert.ok(ok.tsv.includes('tvplus\tSamsung TV Plus\torg.tizen.tv-viewer\t\t' + alt + '\n'), 'TV Plus: the stale package icon gives way to the deep-link package icon');
+    assert.ok(ok.tsv.includes('tvplus\tSamsung TV Plus\torg.tizen.tv-viewer\t\t' + alt + '\t\t\tlive:TVPLUS\n'), 'TV Plus: the stale package icon gives way to the deep-link package icon');
     assert.ok(!ok.skipped.some(x => x.item === 'tvplus'), 'nothing to report when the second icon exists');
     const bare = await catalog.load(run({exit_code: 0, stdout: OUTPUT}, p => p !== missing && p !== alt));
-    assert.ok(bare.tsv.includes('tvplus\tSamsung TV Plus\torg.tizen.tv-viewer\n'), 'neither icon exists: TV Plus keeps a generic one');
+    assert.ok(bare.tsv.includes('tvplus\tSamsung TV Plus\torg.tizen.tv-viewer\t\t\t\t\tlive:TVPLUS\n'), 'neither icon exists: TV Plus keeps a generic one');
     assert.ok(bare.skipped.some(x => x.item === 'tvplus' && /Icon file missing/.test(x.reason)));
     assert.ok(ok.tsv.includes('/opt/share/webappservice/apps_icon/all/aaa/224x224.png'), 'icons that exist stay');
     // If the existence check itself fails, the paths stay (the dock copes with an unloadable file)
@@ -134,9 +153,10 @@ assert.ok(noYt.skipped.some(x => /No YouTube icon/.test(x.reason)));
     console.log('PASS dock catalog: Home row, registry and icons become the dock list');
 })().catch(e => { console.error(e); process.exitCode = 1; });
 
-// CoBA uses its Home launcher, keeping csfs as a fallback; older TVs keep their original pill.
+// The pill always opens csfs, even where the Home component package is installed (it has no entry point: #170, #175, #210).
 const coba = catalog.build(catalog.parse(OUTPUT + '\nH|com.samsung.tv.coba.newhome'));
-assert.ok(catalog.tsv(coba).includes('samsunghome\tSamsung Home\tsys:com.samsung.tv.coba.newhome\tcom.samsung.tv.csfs'));
+assert.ok(catalog.tsv(coba).includes('samsunghome\tSamsung Home\tsys:com.samsung.tv.csfs\n') || catalog.tsv(coba).includes('samsunghome\tSamsung Home\tsys:com.samsung.tv.csfs\t'));
+assert.ok(!catalog.tsv(coba).includes('coba.newhome'));
 assert.equal(catalog.parse('H|bad;command').homeApp, null);
 
 // 2022 Home (S95B), PR #43 by arnaudaprahamian: csfs has no row, the Media hub's file is the "recent" strip;
@@ -176,3 +196,66 @@ assert.equal(catalog.parse('H|bad;command').homeApp, null);
 // The script reports which Home the row came from.
 assert.match(catalog.script(), /echo "F\|\$F"/);
 console.log('dock-catalog 2022 Home: ok');
+
+// An app removed with pkgcmd leaves its row in Samsung's web app registry and its entry in the Home row. The package
+// list shows it is gone, so the dock does not build a tile that would not open. A short package list proves nothing.
+{
+    const pkgs = Array.from({length: 30}, (_, i) => 'A|' + hex('pkg.app' + i));
+    const base = ['F|csfs', 'O|d/webapp@live', 'O|d/webapp@dead',
+        'R|' + hex('live') + '|' + hex('Live App') + '|' + hex('pkg.app1') + '|0',
+        'R|' + hex('dead') + '|' + hex('Removed App') + '|' + hex('pkg.removed') + '|0'];
+    const full = catalog.build(catalog.parse(base.concat(pkgs).join('\n')));
+    assert.deepEqual(full.entries.map(e => e.appId), ['pkg.app1'], 'the registry row without a package gets no tile');
+    assert.ok(full.skipped.some(s => s.item === 'd/webapp@dead' && s.reason === 'Not installed'));
+    const short = catalog.build(catalog.parse(base.concat(pkgs.slice(0, 3)).join('\n')));
+    assert.deepEqual(short.entries.map(e => e.appId).sort(), ['pkg.app1', 'pkg.removed'], 'a short package list is not trusted');
+    const none = catalog.build(catalog.parse(base.join('\n')));
+    assert.equal(none.entries.length, 2, 'no package list at all (the query failed): nothing is filtered');
+    assert.ok(catalog.script().includes("hex(app_id)||'|'||ifnull(app_disable,'false') FROM package_app_info;"), 'the script asks for the package list, with the disabled flag');
+    // An app disabled in Quick settings or in Apps and processes cannot start: it gets no tile, on the row or on All apps,
+    // and the page can say why. Enabled again, it is back. Lines of the older form (no third field) still read as installed.
+    const flagged = pkgs.map(l => l + '|false').concat('A|' + hex('pkg.off') + '|true');
+    const withOff = ['F|csfs', 'O|d/webapp@live', 'O|d/webapp@off',
+        'R|' + hex('live') + '|' + hex('Live App') + '|' + hex('pkg.app1') + '|0|1',
+        'R|' + hex('off') + '|' + hex('Switched Off') + '|' + hex('pkg.off') + '|0|1'];
+    const off = catalog.build(catalog.parse(withOff.concat(flagged).join('\n')));
+    assert.deepEqual(off.entries.map(e => e.appId), ['pkg.app1'], 'a disabled app gets no tile');
+    assert.ok(off.skipped.some(s => s.item === 'd/webapp@off' && s.reason === 'Disabled'));
+    assert.ok(!/pkg\.off/.test(off.allAppsTsv), 'and it is not on All apps either');
+    const on = catalog.build(catalog.parse(withOff.concat(pkgs.map(l => l + '|false'), 'A|' + hex('pkg.off') + '|false').join('\n')));
+    assert.deepEqual(on.entries.map(e => e.appId), ['pkg.app1', 'pkg.off'], 'enabled again, it is back');
+}
+console.log('PASS dock catalog skips registry rows whose package is gone');
+
+// TV-Store (A2STVStore.Store) takes the store pill of All apps when it is installed and switched on, unless the user chose Samsung's
+// store; Samsung's store stays its fallback. TV-Store itself stays in the A-Z list (it can be put in the row), under its own slug.
+{
+    const pkgs = Array.from({length: 30}, (_, i) => 'A|' + hex('pkg.app' + i) + '|false');
+    const base = ['F|csfs', 'O|d/webapp@live',
+        'R|' + hex('live') + '|' + hex('Live App') + '|' + hex('pkg.app1') + '|0|1',
+        'R|' + hex('tvs') + '|' + hex('TV-Store') + '|' + hex(catalog.TV_STORE) + '|0|1'];
+    const pills = t => t.trim().split('\n').slice(-2);
+    const SAMSUNG = 'store\tApp store\tsys:com.samsung.tv.store', TVSTORE = 'tvstore\tTV-Store\tsys:A2STVStore.Store\tcom.samsung.tv.store';
+    const without = catalog.build(catalog.parse(base.concat(pkgs).join('\n')));
+    assert.equal(without.tvStoreInstalled, false);
+    assert.deepEqual(pills(catalog.allAppsTsv(without)), ['settings\tSettings\tkey:XF86SysMenu\torg.tizen.menu', SAMSUNG], 'TV-Store not installed: Samsung\'s store');
+    const lines = base.concat(pkgs, 'A|' + hex(catalog.TV_STORE) + '|false').join('\n');
+    const withIt = catalog.build(catalog.parse(lines));
+    assert.equal(withIt.tvStoreInstalled, true);
+    assert.equal(withIt.appStore, 'tvstore');
+    const text = catalog.allAppsTsv(withIt);
+    assert.equal(pills(text)[1], TVSTORE, 'installed: the pill opens TV-Store, Samsung\'s store if it does not start');
+    const slugs = text.trim().split('\n').filter(l => !l.startsWith('#')).map(l => l.split('\t')[0]);
+    assert.equal(new Set(slugs).size, slugs.length, 'no slug twice: the dock would drop the second line, the pill');
+    assert.ok(slugs.includes('tv-store'), 'TV-Store is also on the A-Z list, so it can be put in the row');
+    const chosen = catalog.build(catalog.parse(lines), {appStore: 'samsung'});
+    assert.equal(chosen.appStore, 'samsung');
+    assert.equal(pills(catalog.allAppsTsv(chosen))[1], SAMSUNG, 'the user chose Samsung\'s store');
+    const off = catalog.build(catalog.parse(base.concat(pkgs, 'A|' + hex(catalog.TV_STORE) + '|true').join('\n')));
+    assert.equal(pills(catalog.allAppsTsv(off))[1], SAMSUNG, 'TV-Store disabled on the TV: Samsung\'s store');
+    // An app named "TVStore" would slug like the pill: it gets another slug.
+    const named = catalog.build(catalog.parse(base.concat(pkgs, 'A|' + hex(catalog.TV_STORE) + '|false', 'O|d/webapp@x',
+        'R|' + hex('x') + '|' + hex('TVStore') + '|' + hex('pkg.app2') + '|0|1').join('\n')));
+    assert.ok(named.entries.every(e => e.slug !== 'tvstore') && named.allApps.every(e => e.slug !== 'tvstore'), 'the pill\'s slug is reserved');
+}
+console.log('PASS dock catalog: TV-Store takes the store pill when installed, unless Samsung\'s store is chosen');

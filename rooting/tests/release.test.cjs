@@ -17,6 +17,10 @@ assert.ok(names.includes('service/platform.js') && names.includes('service/root-
 assert.ok(names.includes('service/updater.js') && names.includes('native/dock/tvlauncher-dotnet-2.0.dll'));
 assert.equal(Buffer.from(parsed.files['service/platform.js']).toString(), require('fs').readFileSync(require('path').join(__dirname, '../../chain/service/platform.js'), 'utf8'), 'updates preserve the Tizen 4 adapter');
 assert.ok(!names.some(n => n.startsWith('payload/')), 'upstream root payloads are not shipped to Tizen 4');
+// 0.5.x refuses a bundle that lists a payload subfolder, so payload/net6 stays out while 0.5.x TVs update (#226).
+const oldOkPath = n => /^(?:service\/[A-Za-z0-9_.-]+\.js|native\/[A-Za-z0-9_.\/-]+|payload\/[A-Za-z0-9_.-]+|index\.html|icon\.png)$/.test(n);
+assert.ok(names.every(n => !/\.cs$/.test(n)), 'no C# source: the TV runs the built DLL');
+assert.ok(names.every(oldOkPath), 'a 0.5.x updater (including 0.5.0-tizen4) accepts every path: ' + names.filter(n => !oldOkPath(n)).join(', '));
 assert.ok(!names.includes('config.xml') && names.every(n => !/signature|\.p12|\.cer/.test(n)), 'nothing of the Samsung package or certificates');
 assert.throws(() => updater.verifyBundle(built.raw, crypto.generateKeyPairSync('rsa', { modulusLength: 2048 }).publicKey.export({ type: 'spki', format: 'pem' })), /not signed/);
 console.log('PASS release tool: signed bundle verifies, root adapter included, config.xml and certificates excluded');

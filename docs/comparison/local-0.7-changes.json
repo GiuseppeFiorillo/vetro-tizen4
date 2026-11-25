@@ -1,0 +1,1349 @@
+{
+  "upstreamTag": "v0.7.0",
+  "upstreamCommit": "fb83fd055681127761e322b434d82c4626a55a05",
+  "scope": [
+    "app",
+    "chain",
+    "dock",
+    "tuner",
+    "rooting",
+    "kant-m2-root",
+    "design"
+  ],
+  "additionalStandaloneSourceFolders": [
+    "overlay",
+    "lib",
+    "native",
+    "profiles",
+    "tools"
+  ],
+  "textComparison": "CRLF normalized to LF; SHA fields use raw bytes",
+  "changes": [
+    {
+      "file": "app/README.md",
+      "status": "modified",
+      "originalSha256": "0899f2c900146aa840f6faf52698c7fe7578a0d187f3fec1d9b04b415a03c70a",
+      "candidateSha256": "1550e272dd3ca6139ed59215f20f14384fdcfc85efdbb57fb6ecd3be9b61630c"
+    },
+    {
+      "file": "app/build.cjs",
+      "status": "modified",
+      "originalSha256": "488d91fc77b721722c0785a997f632bb628cbba2cc4bb5b3aac0df54923bd9fe",
+      "candidateSha256": "4c3720e00e74a9d32c376913659f0118ca901c215afc2a08c8a9e9f238d9662c"
+    },
+    {
+      "file": "app/design-system/icon-reference.png",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "794e19aba46db19ecc954b85ef5764712de759f53126974e629d5c6096f0e2db"
+    },
+    {
+      "file": "app/docs/INSTALLATION.md",
+      "status": "modified",
+      "originalSha256": "876c8a095b095f166761075af5b0590cbff3d5c61286908b1ea884866fe6aa59",
+      "candidateSha256": "7deff373e7bfd0e76ae51508b17591ec6981861f9763b9e7b0082d87238b2af8"
+    },
+    {
+      "file": "app/docs/STATE-MACHINES.md",
+      "status": "modified",
+      "originalSha256": "4475db7242d225aea35969ee091c7da88de4ab377f09f58edcf1774fc12ca56f",
+      "candidateSha256": "d631b06c8a963910cd86ca8c6bb76fe98eb7d24f3b8789c426f45be9d5d2029c"
+    },
+    {
+      "file": "app/docs/UPDATING.md",
+      "status": "modified",
+      "originalSha256": "b30c4493db3a168f07330dba6d3f359e7d0412b1a37e5a37f839508889664c9e",
+      "candidateSha256": "2458b7147fa8ce9caed555ac3fb51226d72045612abd07ad954d12619daed721"
+    },
+    {
+      "file": "app/native/dock/tvlauncher-dotnet-2.0.dll",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "5240f507304e7c207c11fe077dc0228ac1a82c58ecc0e9a0439d2202fa647e49"
+    },
+    {
+      "file": "app/native/dock/tvlauncher-dotnet-2.0.runtimeconfig.json",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "3f2714fccaffb7463c14b82ae23a7e2263c027acb8de4c674cea5644e62d3a3f"
+    },
+    {
+      "file": "app/native/dock/tvlauncher-dotnet.dll",
+      "status": "modified",
+      "originalSha256": "bae24813407fce9226536f097d52471fd31583157fde34d407a827ebae533278",
+      "candidateSha256": "449def2da8db1c0d0bbf775ab5632d458fc5dc0b86668b5e01ea762de920f449"
+    },
+    {
+      "file": "app/scripts/test_verify_wgt.py",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "4788d89b51dc44684b4c816db0a66d2b6388d4c6c5f48da7ed9067e18438a100"
+    },
+    {
+      "file": "app/scripts/verify-wgt.py",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "13b22f63355e66f53136793ae8787ad03f7bed674c8cf7cb8e585f437d43a2a8"
+    },
+    {
+      "file": "app/service/app-registry.js",
+      "status": "modified",
+      "originalSha256": "1dbb8938b3d04d5554b5c2e3c9b3df3c98dd9598885811e1f69a68dfcc93960d",
+      "candidateSha256": "7dd3d21fee7e264ea87959ed11b4be44e1d53e39f0aab8843da4c127d130e95f"
+    },
+    {
+      "file": "app/service/compat.js",
+      "status": "modified",
+      "originalSha256": "7098901baa89a61224edbca4627203be143d6f77fa88cc6385d396efb4dfe1f8",
+      "candidateSha256": "0d182725a97b6285e9e6f8b155885c74e75e17d009866ee9ddefba4ff0290aff"
+    },
+    {
+      "file": "app/service/component-actions.js",
+      "status": "modified",
+      "originalSha256": "2b65d73c77ceb486e503ac2079c66a5957765e0d83daa46e007eefe516d5f040",
+      "candidateSha256": "f8b0e8dd95b3552d3347e9c860d70928589e5b1f40352449177c28fbd5e5184f"
+    },
+    {
+      "file": "app/service/dashboard.js",
+      "status": "modified",
+      "originalSha256": "49dea51d057e6d8334c1efa87226a7f474e85c7de8b7de89790190493908d261",
+      "candidateSha256": "27ee4cb80345207992c71b60e73e69df1ff870f5bbec963358c1f67e787564b8"
+    },
+    {
+      "file": "app/service/debloat.js",
+      "status": "modified",
+      "originalSha256": "028516e7e4e95e409207f8b2f585e13b5a92dbfcf36e443f16b61c2eeac661a7",
+      "candidateSha256": "5c06a6cea390393f272599abe065f36b78e5a67d6de8bce076a091904e79ffbb"
+    },
+    {
+      "file": "app/service/dock-catalog.js",
+      "status": "modified",
+      "originalSha256": "e366dd1b422fdb3a16bfdcdbc179891720427a1a4b6414c58d71e7abf1ffb8ee",
+      "candidateSha256": "64a75e52ba1dfe824d1cfa25d74b1883319c151d0f2adc315e1f31b1255a28b0"
+    },
+    {
+      "file": "app/service/dock.js",
+      "status": "modified",
+      "originalSha256": "18d1a63d18ab582201da2d7fa4e32a516f24dd2935a783e3451f3844e2e00ed0",
+      "candidateSha256": "70b5d8777ae69c497c3feef88b022b9fb17de936a7935db06a632d2986d18a6f"
+    },
+    {
+      "file": "app/service/hbbtv.js",
+      "status": "modified",
+      "originalSha256": "252c40ea425605ff5ae6aa58cf4f42fba837ac3e30b45762a7e9ca006f1e966a",
+      "candidateSha256": "df5553aac359b5f9bd2f9f426abafaeff308321cd264b83683050d95919f33f0"
+    },
+    {
+      "file": "app/service/home-cleanup.js",
+      "status": "modified",
+      "originalSha256": "a9cb16b33feb36604cbc2dba92ab823b81b1513b18e68ccc7d6e87a00ffd6be5",
+      "candidateSha256": "c3893d5da89ef187b2f177b250477b4a0c5a7011a45cf27f88bd4827b9f6ca26"
+    },
+    {
+      "file": "app/service/keep-removed.js",
+      "status": "modified",
+      "originalSha256": "6b745a5974d48b941ca265821d982d4991a435bbd27ce88bfb6fa9510e8ae086",
+      "candidateSha256": "6a1575853cdfa97a5541d4eae371c498df60a33fd328655d2e056fa5690beed9"
+    },
+    {
+      "file": "app/service/main.js",
+      "status": "modified",
+      "originalSha256": "fb067b502758138f67412390f1dbd22f6b4e4814a06c25e77f935770870a9b9a",
+      "candidateSha256": "c9dfab0363b95501ae5df7f2de8654c5c8b59125818a8cf917cdbe647e583e53"
+    },
+    {
+      "file": "app/service/privacy.js",
+      "status": "modified",
+      "originalSha256": "8310d5bee211e9a0152f0e1f0c1438e4cb4ffb98735486d4689e73fc7a8e1177",
+      "candidateSha256": "47e7fb193f9122d331b30357b36dab159bc228cd6d0bace5f4ed614fa17df5ba"
+    },
+    {
+      "file": "app/service/quick-wins.js",
+      "status": "modified",
+      "originalSha256": "5bb973634e304bb1924ceef4bf3fd91228cb7d1bae1ee6f1974ca3c90d21fab3",
+      "candidateSha256": "389865fa5645c9fc337ecb2a6d6a7c8aedf7011971289b7f192b0d0932cec984"
+    },
+    {
+      "file": "app/service/restore.js",
+      "status": "modified",
+      "originalSha256": "303967da32751b794964589b32e91a1c21250a7e670b2b72eb7574dc2aa84fff",
+      "candidateSha256": "ed179e374fb27892c597e0126e6051dc3cf9c002e1593c3ce4852f2d8e2bbb1a"
+    },
+    {
+      "file": "app/service/runtime-evidence.js",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "a4da6121251ec6f564eb73f2920f6b3b45cd28aace53574d5d6d0dc515f75308"
+    },
+    {
+      "file": "app/service/tuner.js",
+      "status": "modified",
+      "originalSha256": "52906bc7707f4549fdbcf9334751b93754685bb934087e138bee6b6feca39739",
+      "candidateSha256": "e3e085ab2728d47be598d5ade36a9a311bf59a33e6fdc47e1c71e53771fa7f2b"
+    },
+    {
+      "file": "app/service/tv-settings.js",
+      "status": "modified",
+      "originalSha256": "6fe47cfce905ca9cdfad2572ecba80b29d4d4da23c5a7462936676f8b927f777",
+      "candidateSha256": "74e41b79bc44335cbc83ba0aa939a87cdaa1beb5550593ca30cc4150ac6fb910"
+    },
+    {
+      "file": "app/service/update-key.js",
+      "status": "modified",
+      "originalSha256": "5121d7dd758f722b5bb5d64079282b1ca01155b9a1ccfb644fd46d62749ec0e1",
+      "candidateSha256": "e7442337ecaafa042a4ae994df68b62c4756d6d83a6a91744b14626e45a16f20"
+    },
+    {
+      "file": "app/service/updater.js",
+      "status": "modified",
+      "originalSha256": "08b6587cf43593570f883df62c02270e009ae4c0a1a321536f561e336dac8a41",
+      "candidateSha256": "3064791536e91319471fcc8f0bf2ad326cd8c3e0d8fabff10d0573129d59dcb6"
+    },
+    {
+      "file": "app/tests/build.test.cjs",
+      "status": "modified",
+      "originalSha256": "6df3ee0baf63414af8a0fba1cf67f1c4de4fa32a32aef746cf2933de459b4ad9",
+      "candidateSha256": "f85fdb5707d7e66f07c5b7e204ddc50421c34bfe22ccee17ba0bc077db67bd62"
+    },
+    {
+      "file": "app/tests/dashboard-client-states.test.cjs",
+      "status": "modified",
+      "originalSha256": "ab785be4ccc4f9ca85d16fdca2893381200133324c08e44b8277bc3e5f44df9d",
+      "candidateSha256": "8564c9ee4dd0f9542d140384e6f96a86d0d5c22db923d1f5e6f7c2dc49f88e81"
+    },
+    {
+      "file": "app/tests/dock-catalog.test.cjs",
+      "status": "modified",
+      "originalSha256": "12eafbc99621954513e777476b091aa531a4ae59100c658ecce6d7ab389c64b6",
+      "candidateSha256": "f9ac332a61303b9757e275bc23d05fad1469a5a657e898522fbf764c5b0948dd"
+    },
+    {
+      "file": "app/tests/dock-custom.test.cjs",
+      "status": "modified",
+      "originalSha256": "49abedb891c95f96534462f54df1d826d30796e8d8aaf79ffda47408d6238a95",
+      "candidateSha256": "c01b9c4626c25952b8aac8d03f2ba2e5e90d65ba411404fc9c22001f961ac22e"
+    },
+    {
+      "file": "app/tests/dock-row.test.cjs",
+      "status": "modified",
+      "originalSha256": "b2728259d519c6bc887450387d12d55a3595acad11a3cff64dda2347c88cf3db",
+      "candidateSha256": "cccd9c83e4ef7212ead7b970008c483242f2ab5b7af1bd73969e0a75dcbd9a1b"
+    },
+    {
+      "file": "app/tests/dock.test.cjs",
+      "status": "modified",
+      "originalSha256": "7ceec4ef91c57d69f21229539d2202fcbd9479f5410e91813a97bdb5fa09d295",
+      "candidateSha256": "9b9658aee05baa8816ac2aa0663835215aae39123768262f5a80d9854185f285"
+    },
+    {
+      "file": "app/tests/fixtures/node4-runtime.js",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "004080fe2b176d699b9f368c49dab58b0784e97b15101d29e667d4afaeb271de"
+    },
+    {
+      "file": "app/tests/fixtures/runtime-evidence.js",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "aff65c5d2c634c831b9af1fc792ab832813f1ff9d276ffb84d29288e09ab3892"
+    },
+    {
+      "file": "app/tests/quick-wins-states.test.cjs",
+      "status": "modified",
+      "originalSha256": "bee122cc1baad61d36cab05217e293be64826ec53a0f1f2485b1f224073a6c83",
+      "candidateSha256": "41503cc097530623505057577a58c0dee8233b58b53c6de9a107259e1e784135"
+    },
+    {
+      "file": "app/tests/quick-wins.test.cjs",
+      "status": "modified",
+      "originalSha256": "ab1ffa5b8917431a3e283823dfa624622029b074db703b335e1ca85c35739d77",
+      "candidateSha256": "9dcd7fa8430d95462db61342c9868886e075c8c69fd3ca439f4719c5b18a1b71"
+    },
+    {
+      "file": "app/tests/runtime-evidence.test.cjs",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "7ae44f157edef2a343cc42d523a41bf83b489ada9d511b37771be54ccfee33df"
+    },
+    {
+      "file": "app/tests/standalone-plugin-access.test.cjs",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "1a05e71e96ee6e420ddabc190679a1662cf4608689d702223f82723a3cf73f19"
+    },
+    {
+      "file": "app/tests/standalone-root-hook.test.cjs",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "bd308ca3a59b2fa82828f06a1d0d49b3df3007e6042917f5833996238a7bcff7"
+    },
+    {
+      "file": "app/tests/tizen4-public.test.cjs",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "41e7f775e2d9d6ea43b2a980c3ab891e1656b38a3cbb6ddaa74b4abf26b42997"
+    },
+    {
+      "file": "app/tests/tv-network.test.cjs",
+      "status": "modified",
+      "originalSha256": "535a4364c0528b2c3e52b91f62a7527ae1421e99ae53680f5c491f1927dcf204",
+      "candidateSha256": "f1090530d0ff6d60d22546bd786e62e842bb91a723cc98d2d48a3a1131765cdc"
+    },
+    {
+      "file": "app/tests/update-endpoint.test.cjs",
+      "status": "modified",
+      "originalSha256": "eb07472f99e3917c208824cb417a31eff5c56ac239bcbef825c617cebadf7d51",
+      "candidateSha256": "00f2c4f99bc27b7a828cee2085cf3046407d076f6157d5358e53c5049d48fce9"
+    },
+    {
+      "file": "app/tests/update-notices.test.cjs",
+      "status": "modified",
+      "originalSha256": "18792b62166858b6a7bb22aa154587f3563dcbcd519c5cdac3fd81e64d67fdfd",
+      "candidateSha256": "90e5fbfd2d136a0f19bf34682f03d5d0f433bd8fe5030e41ee7f0c59a03e0e72"
+    },
+    {
+      "file": "app/tests/updater.test.cjs",
+      "status": "modified",
+      "originalSha256": "0bedcd58ad704a1104c689e27cd2a29cd54b1ee725fb7135b878bc1c922b2fc1",
+      "candidateSha256": "7af12494434dd6777a62ea97f647b6b0eea5256c1adcd80d74dbb62fab21aa28"
+    },
+    {
+      "file": "app/tests/vetro-ui.test.cjs",
+      "status": "modified",
+      "originalSha256": "ad8d745d9985f33b343984b2c443d291eb66b07642aa3b70796cd3cb3780eafc",
+      "candidateSha256": "859460724263966b2d4df42cb0f88f77d45367836fe30f6b0afa85f6f34111d1"
+    },
+    {
+      "file": "app/tests/youtube-flow.test.cjs",
+      "status": "modified",
+      "originalSha256": "f00962526441eed9139ae117a5d392c52df12ca2bf616ea41a24b2d68395f9e3",
+      "candidateSha256": "ddcc76d0c2b2ab0481a41d153ccbcf2cf1641f749dc051afb08e89c8e8a67291"
+    },
+    {
+      "file": "chain/build.cjs",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "1e94d09af0fa39809fcb5eee30d07ed166932c471f17384e468fb784115762f5"
+    },
+    {
+      "file": "chain/daemon/root-daemon.js",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "bb8b6b968e1eae29883cf79bd72e0447697e79aaa717693be8afb3e71dcede19"
+    },
+    {
+      "file": "chain/daemon/start-daemon.sh",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "d30abbde774554ec9e01c58730ee06089352b4d20b7a73ac937842053cf36464"
+    },
+    {
+      "file": "chain/daemon/stop-daemon.sh",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "9fd03b7d1bc1e4852c5bc8b5d89b96cb5d430bb69da24ec5c56babdaa10591cc"
+    },
+    {
+      "file": "chain/service/debloat-commands.js",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "35f77147e0f690890996ea34020277e75fae8819a60906564332a1be5b7f991d"
+    },
+    {
+      "file": "chain/service/platform.js",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "8d2df7448e4935dc5675119a3b66f08b727856313be1fd9e4ca14048867238ed"
+    },
+    {
+      "file": "chain/service/root-agent-server.js",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "b3b6f9d1aa89b72b71b2968849d207829e436cfc211a3055c5722c278d48b178"
+    },
+    {
+      "file": "chain/sign.cjs",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "ccdf426249271d8b3982bb1c96554ece87fe9d1f5c2d3050e60d64c086f859bc"
+    },
+    {
+      "file": "chain/signing/package-lock.json",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "6f390cc007d32c8cfeefe55ff03b079b4864aac04656d362db90d4aa771ed5b6"
+    },
+    {
+      "file": "chain/signing/package.json",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "8e2cc48f97cb53ddb95411f22ea66a5c7c94a22d58c37098ddab6614e7357e9d"
+    },
+    {
+      "file": "chain/tests/adapter.test.cjs",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "2fef9b9ed6668ff215aeaeeeb6d7f7700395f3f89c3cc619a3a414b2f6f99d44"
+    },
+    {
+      "file": "chain/tests/auth.test.cjs",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "9b09bdc84e9c1909d01153d28196fba59e6ee44a8ae9c296390eaee974e8d72f"
+    },
+    {
+      "file": "chain/tests/daemon.test.cjs",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "5558e08b2019b7a7acd7cf0f1b890d8073fe426bd5ce567d9ff3b2584f78c08d"
+    },
+    {
+      "file": "chain/tests/run-as-owner.js",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "38d5255606a725e371782c0ffce7a64fbd1b4f8b1a1afdb3c8c474b11c8ecf49"
+    },
+    {
+      "file": "chain/tests/run-as-probe.js",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "afa16513faa69cbeeb9ba6e38b988dee2b8575b1a829b73031be16bfcb9a1019"
+    },
+    {
+      "file": "chain/tests/smack.test.cjs",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "5d1bbac095db4116bd11fbf8e97aa2733f44a435c1b4cf093378631e58455bac"
+    },
+    {
+      "file": "chain/tests/tv-platform-test.js",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "f61098279f7d3ad818b521d9f29262d0a311b3a700b20297cdc4eea5646393a6"
+    },
+    {
+      "file": "dock/Launcher.csproj",
+      "status": "modified",
+      "originalSha256": "a7a23413be9220f961b2ad3e2ea8a53faf83e69c410078df8f94a893d0c0cca7",
+      "candidateSha256": "8453660670c634e138c6ac4b1e9717463b7760185d73f39e3c8701abe93df954"
+    },
+    {
+      "file": "dock/README.md",
+      "status": "modified",
+      "originalSha256": "ffec563a786d5bf269ed59d241f1ff57fada9286b7370551768ffc77878f2408",
+      "candidateSha256": "1f9ba513895b979ff40966546796e4cc8d935ccaa8bc16383348d9573e29fa21"
+    },
+    {
+      "file": "dock/build.sh",
+      "status": "modified",
+      "originalSha256": "4315668a7d5979cd461e9ce67fcb4c1f2e8ae932f7ad623c5a8dac9a08e4e16d",
+      "candidateSha256": "7cd9dbfa6acbd80f9204f48d01290604c0738f69c60414a676543f91a99da44f"
+    },
+    {
+      "file": "dock/src/Core/HomeGuard.cs",
+      "status": "modified",
+      "originalSha256": "c2a65dc23b4f30628348ea0c116ad0bed183ab6731f08e6a419eedfdb9bda937",
+      "candidateSha256": "c817807f99db475a5972b8a0364e4634f11f738ffbe7607feee266e8f8cbdbc2"
+    },
+    {
+      "file": "dock/src/Core/HomePicture.cs",
+      "status": "modified",
+      "originalSha256": "3ebf956c40e1b5c85f5bd7ad972a150bcb0cce8c151269f0211f94658f74c3aa",
+      "candidateSha256": "d7dd190bd3578014e8f385bf0aa7f692aaaf02a5bf8280532ac5893508a2726a"
+    },
+    {
+      "file": "dock/src/Core/LegacyTvActions.cs",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "260be3947c5d3297eba9a95a7b38f3a416681b57742062439148fdc79755d137"
+    },
+    {
+      "file": "dock/src/Core/SystemLaunch.cs",
+      "status": "modified",
+      "originalSha256": "cb108f378ffb585661a2d2fc94c65c759bff7d841fb9cf60ff8ac03cf51bb688",
+      "candidateSha256": "7f54acb80ed0f32a3b99eb79d6ce212c8bd65dfacdfe679c7ea8545af2037726"
+    },
+    {
+      "file": "dock/src/Native/Efl.cs",
+      "status": "modified",
+      "originalSha256": "03397d6bd4c3f8a7cbc1f6819b72a76ba4516605ae5893cfb1de520cb4b14d31",
+      "candidateSha256": "4b9570a2bf527c64c529dc9ce0d6cc23dd63094c63a6f5d44b5026cd0a46539c"
+    },
+    {
+      "file": "dock/src/Native/Libc.cs",
+      "status": "modified",
+      "originalSha256": "46b9135f07bff2c069fdad60aa67c13ed5812197238951b891dca995bb2c63da",
+      "candidateSha256": "eef04c2eabb3a879e5dd1f7fadcd860a2f21e4781e57dd04b781ad44f4b27afa"
+    },
+    {
+      "file": "dock/src/Program.cs",
+      "status": "modified",
+      "originalSha256": "82267cd5972111545e95fe6870d1736dadf86862f63efff45e848e6ab4825871",
+      "candidateSha256": "a4c86a0c4265cd2d8a145a81c41f557c3cd1ba612d3c835c3f895065550bf73c"
+    },
+    {
+      "file": "dock/tests/LauncherRegressionTests.cs",
+      "status": "modified",
+      "originalSha256": "d87004df6599a9f25ef9d546d77936c12a86cfa6bc91ac25950f5d365eb446e7",
+      "candidateSha256": "d1e5d22cb2da5aae53e61634b83522682e54dc19df9c1523779ab6430f780520"
+    },
+    {
+      "file": "kant-m2-root/README.md",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "b6a5ce732ce01b2f4ec2bb828995a425faab0bbdedbbed5a2b46afb05bbb0c08"
+    },
+    {
+      "file": "kant-m2-root/boot/boot.sh",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "bc58d3b328b3ce9659916bae44cced4420854da1efbbdf7a1bc2bc7fbb4d2dbd"
+    },
+    {
+      "file": "kant-m2-root/boot/install.sh",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "87245da14fb8e51701d1e748e1c7e283836219896a527bf90968a86375a7e369"
+    },
+    {
+      "file": "kant-m2-root/check.sh",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "d9c9177842db7d24f716403f316ff97847adbd40fe43d5597d353205ac79969a"
+    },
+    {
+      "file": "kant-m2-root/supervisor/run.sh",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "6f5742ab012735f5641f8d0f758a404386eff61f8fbf2da29b0965e35716f952"
+    },
+    {
+      "file": "kant-m2-root/supervisor/stop.sh",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "da0b7ab2dcc7cf121db66968c912f2a92d1a46d4f6dcc7b0b604ac30cc1f3e88"
+    },
+    {
+      "file": "kant-m2-root/supervisor/vetro_supervisor.py",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "01b056f39f4a06ea49de94e3b9760fc7b4f67e5ef0925b32a473829e550c689e"
+    },
+    {
+      "file": "kant-m2-root/supervisor/vetroctl.py",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "2ef57fb83fa6cefb24b70ee756e82c19ad594a35a5c686b19fad16668701c1a6"
+    },
+    {
+      "file": "kant-m2-root/tests/test_boot.py",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "c24a068b220ecf0bdefc28be35e6948a4d0c7f29eed0b969520b7b7ca6003f33"
+    },
+    {
+      "file": "kant-m2-root/tests/test_supervisor.py",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "4ab2004ff46a6b82786ceddf1dcec28f9dec5945a6a7ffa5f2fe0c7a63e29762"
+    },
+    {
+      "file": "kant-m2-root/tools/build_bundle.py",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "6f0302f8b3b3de07fe20064f01eaf083cafd16686a05c6b3f136dbbed559d958"
+    },
+    {
+      "file": "rooting/COMMUNITY-ROOTING-REVIEW.md",
+      "status": "removed",
+      "originalSha256": "cef8a69d9aa39b8df4846116f94475247dad851db9ae741444982a7dbd6dbb59",
+      "candidateSha256": null
+    },
+    {
+      "file": "rooting/EXTERNAL-ROOT-DESIGN.md",
+      "status": "removed",
+      "originalSha256": "b0fe6488f83bdafaad1d15144a5cc1af9f448cd762e10a7fddebe7d1c694de81",
+      "candidateSha256": null
+    },
+    {
+      "file": "rooting/README.md",
+      "status": "modified",
+      "originalSha256": "2b10e0d129e252be0e3459b43111bd6d60162b912b71ac88391f5fa62b036427",
+      "candidateSha256": "0c3ae1b78859349b70ed8c2f360a02369fe2b2e0fd710650df44ddcf5c52659e"
+    },
+    {
+      "file": "rooting/TIZ0WN-CODE-REVIEW.md",
+      "status": "removed",
+      "originalSha256": "92caad60e8b77d592d21b5629d91011e52e5d819aade3f6dfa8cd35a0c279403",
+      "candidateSha256": null
+    },
+    {
+      "file": "rooting/TIZ0WN-EVIDENCE-REVIEW.md",
+      "status": "removed",
+      "originalSha256": "b14d44aff79510dabdd4d94f4f0cec01eb031082be30c556cce72409454c8ec3",
+      "candidateSha256": null
+    },
+    {
+      "file": "rooting/build-legacy-experiment.cjs",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "c40cf9f2f0fab77e48544ab54b414fdab69934f404b707b8672489c710675ec2"
+    },
+    {
+      "file": "rooting/build.cjs",
+      "status": "modified",
+      "originalSha256": "f3a4822f2c43c388aed2bcb814da4ad8df3b4fcebc0bc307cb969088b3d1b679",
+      "candidateSha256": "3f122ed3e1aa16f1f06b898979281d6dab225c5169bebcacb24bdeeac7aa5662"
+    },
+    {
+      "file": "rooting/release.cjs",
+      "status": "modified",
+      "originalSha256": "e8c425b6e04abd3c45d8bc5c7ce4e78b739c5ef0aa9a123bb5141ee28e212eb2",
+      "candidateSha256": "0b84034f6bf726fc61881b1e149e24d12c4822f932afb2e3083b164d9fe26ca6"
+    },
+    {
+      "file": "rooting/service/platform.js",
+      "status": "modified",
+      "originalSha256": "1efa4eb644350434fd02d487d6724fa3d8e4b75f6db08b34160005aef998a43e",
+      "candidateSha256": "2140b3d1af05f5ef7594df7d9069fb2d91d2c8df012a6f961ab8da214cc4f997"
+    },
+    {
+      "file": "rooting/service/root-preflight.js",
+      "status": "modified",
+      "originalSha256": "d9d300f2dca5cde9b8646511d15f1c3156ee9cdfac0d8d31e64f6b7df286e548",
+      "candidateSha256": "da3331ecea824aa063b44b0f4c01f7a7be844d6eba82e37b3187fbc7004657bd"
+    },
+    {
+      "file": "rooting/service/sdb-tunnel.js",
+      "status": "modified",
+      "originalSha256": "e0bfaa23bb723b3b31d750a439ddc3e89c2ce2f5787a4f469fbf123f18fe36ff",
+      "candidateSha256": "68a84722ec3ec3e7055f883396495b5d966313ec491ad46cf3408fb2f25f3b91"
+    },
+    {
+      "file": "rooting/tests/fixtures/preflight-node4.js",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "fbfb1803c1687a76c5e887d214abccf19bdf6045a096bb926843947fa9999203"
+    },
+    {
+      "file": "rooting/tests/fixtures/update-from-050-tizen4/README.md",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "2a7fa63872ccdef87990f243d7180e4717e1cbf948d8ee21fa34363675b79f0f"
+    },
+    {
+      "file": "rooting/tests/fixtures/update-from-050-tizen4/installed.json",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "592e6ba09182253ff388068ab6e7894e2ca1bc89afc304387b3b22d53d2fb093"
+    },
+    {
+      "file": "rooting/tests/fixtures/update-from-050-tizen4/updater.js",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "d63fa9048c48ff890020a9052fcb045d503abea6d0b5a31818f16745b59ebd64"
+    },
+    {
+      "file": "rooting/tests/legacy-experiment.test.cjs",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "01a7f1224d2b1e8f03bdab77b6c40087efda3741c85464d7570ab13053fc8163"
+    },
+    {
+      "file": "rooting/tests/package-boundary.test.cjs",
+      "status": "modified",
+      "originalSha256": "7d9ca7e327c776b93ca49065687ceb145573ae6ead2b5a020ce5919d89bb1db5",
+      "candidateSha256": "60036775928f690bf0676c44f718a630f484eaa5876439290f1abffb0f0956fb"
+    },
+    {
+      "file": "rooting/tests/release.test.cjs",
+      "status": "modified",
+      "originalSha256": "88611c74e184b0319e5a2522d486d89926984ac6a635f02aadd470207978f918",
+      "candidateSha256": "31fa2becd84f15d113b0e4a636c70d62cd26c6e32836930b7a9aa778d2dde2b1"
+    },
+    {
+      "file": "rooting/tests/sdb-tunnel.test.cjs",
+      "status": "modified",
+      "originalSha256": "434bbeb34f6359e8c6b177af05f6c7adf783075cab3d0c6867541762edb69c6c",
+      "candidateSha256": "b2571b2b8a823e4129262b486085994e78d77d7f30dbd16ff0f5af84b0c8888f"
+    },
+    {
+      "file": "rooting/tests/tizen4-migration.test.cjs",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "84b9a5254d050dadbe3ca9b2e9472b437c2f2c7919d399aac312352ae3813a99"
+    },
+    {
+      "file": "rooting/tests/update-size.test.cjs",
+      "status": "modified",
+      "originalSha256": "a6460754bfc69253e2555cc850c8b0d44d18de7b3bee5522df54d13790cd2032",
+      "candidateSha256": "431ce7624be84c9543b765a52101b1d2e81409708ab931ec92e719f824a2a21d"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/.github/workflows/build.yml",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "56e1d46920b8aaad66df5b618f2147d696b4ad5f65ee389e479b64b324f87f0f"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/.gitignore",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "6ff876774c2ed7b38f062995e22e2c182fe79d4bfa7e0f5047020706e20b1a42"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/.python-version",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "7b55f8e67b5623c4bef3fa691288da9437d79d3aba156de48d481db32ac7d16d"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/Makefile",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "9d2d7db154617f724e6c2c02929b188ea565cdef514be46acc13458d26ff6868"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/QUICKSTART.md",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "078c9037e1bb913cfeb3935f4c43f86dd9ed4e27dae93eec06ed6015246c3eb6"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/README.md",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "435d5fc6345357e0b03a9622bf5ec68e4e5a4c4e99a713df41b42b6203385e6a"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/docs/README.md",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "47be497f34f183edfdbeeba465a68200e3f63083c35da350af86ff65012fbdbd"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/docs/research-notes/AES_EXTRACTION.md",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "786d4ef2f395963113795ecd184f3a205233aae1b6b9186da2f22efc73e2642b"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/docs/research-notes/EXPLOIT_CHAIN.md",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "bef8e04ecc2b2e0cf4d9fe29aaa06e1feb93588ef96209bb66e1319ca771fe93"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/docs/research-notes/QN90B_REPRODUCTION.md",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "d387f1fec4baa368dbd069db662089f1f84b85cef2114e37caa7f6ba5e0443dc"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/docs/research-notes/QN90F_REPRODUCTION.md",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "d3756a58b9a16fbbf218d9e53b80a643698d62307a59e8e3825565e9cc623825"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/docs/user/CONTROLLER.md",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "f150500eaf10440819810c36af1c91d04d88b72be21d91f498497b0e0730081d"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/docs/user/REMOTE_POLICY.md",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "6ea5903c5e6f331331d98d1a70c548f8a95f5bd93d32063b2fb0ba6e7c1fd7c1"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/payloads/qn90b/FdetProbe.cs",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "dde736f1a0585f7d6ef100d826b3b5f7f1997fe7cc5a7419b138ec69a6d9316b"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/payloads/qn90b/FdetProbe.csproj",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "abacdc1b8a5deae103f21296cd6ccd2b52e1a71ca09793db9f35e45779c80720"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/payloads/qn90b/FdetProbe.runtimeconfig.json",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "ae259681d154aa329a88aa3f1d7b77709aed45e44eef5f850cb8762d77bd7079"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/payloads/qn90b/Qn90bDisplayControl.cs",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "18c29fe0a6f60275cc00bcf3b0c1562daea4a50c69e247cf1cc80a25532f3f21"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/payloads/qn90b/Qn90bDisplayControl.csproj",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "93f5421a09e4a16c9d32db197f99b815160cf950c012368b87f726cce3de1edb"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/payloads/qn90b/Qn90bSourceControl.cs",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "1db19038b4801762365ab684ada8742c5effe8596ba12baf92a92e0c807b5261"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/payloads/qn90b/Qn90bSourceControl.csproj",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "aa1e231c48194496fc61d39865f0d11548c3f45f9643c44a35c06dcfcb6f2804"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/payloads/qn90f/CorePatternRootExploit.cs",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "d652ad799217015449a2289861c97866f8ae22d4c8be02cbf34aa1b8812ff2ec"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/payloads/qn90f/EglComputeContext.cs",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "b813331227e5bf02228389bcfe11f994e650720507ccaebf3168307a6d3cf300"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/payloads/qn90f/MaliCommitProbe.cs",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "8d142bace5e47fa5587f79816eb7c8535428e7fd25e36619127d55c96d76a726"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/payloads/qn90f/MaliNative.cs",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "e8625c63720a1f8e441453b274174ec5ffc0287fec3c89b6223459139227940f"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/payloads/qn90f/MaliPageTableReclaim.cs",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "1d1dce1f3cceda0ee975b7c7da6578985a7ff729217112fb778fa5b56ca7d578"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/payloads/qn90f/MaliPatternProbe.cs",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "6ad492215a34206a2fabf592ae838d5e798ced973d90da2779c5eb1bd99f2244"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/payloads/qn90f/MaliPhysicalProbe.csproj",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "90132797428ccd4904db849c9e4ea66df71b8f9bffb13e8198dc829331ecd9f2"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/payloads/qn90f/MaliPhysicalProbe.runtimeconfig.json",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "681a7f9dd3ecb637e2f1198c9cbd9d0e1b42994c211c64c8ffe2fba3f2c0442b"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/payloads/qn90f/Program.cs",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "13926fd52ca7366e81558812dbff262e7c99c094ea305715165e5276a1d2dcb7"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/payloads/qn90f/Qn90fDisplayControl.cs",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "5e377e1e7248618f6f99b6067fce7a347d907b1651cc14e71a10ca6c280978bc"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/payloads/qn90f/Qn90fDisplayControl.csproj",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "9995c8d9f4448d2f1509faaaab6f6123abb57975d2659ec7e0aea2563cffd0ca"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/payloads/qn90f/Qn90fDisplayNative.cs",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "de10199f026fd9cbda5b4858f9b3a110b1f7cb001c950507e319dc26070ec357"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/payloads/qn90f/Qn90fEflTextOverlayProbe.cs",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "0e72141c18df8f995dc1a5bb36718aaaad9fda473b524caf439f2f3b5953de3f"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/payloads/qn90f/Qn90fEflTextOverlayProbe.csproj",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "713f8c087a8e0597f6cecd26a50e977c6084104872d29e597eedf605aea6c1e2"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/payloads/qn90f/Qn90fScreenAnalysisDump.cs",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "882e297420e14822e650a1a0633f075bc90a74c3eebbbfb09f99ce1afe8c9115"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/payloads/qn90f/Qn90fScreenAnalysisDump.csproj",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "77b825c300e983869d8c367bf3c4b904313b27df3d0837af21e09b4c603d4aac"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/payloads/qn90f/Qn90fSourceControl.cs",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "6abac836524201663c2a26b0d41938aa70734824d29a9a8d07b29ce452fecc08"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/payloads/qn90f/Qn90fSourceControl.csproj",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "44444c110f34dcf516857beb1833935c20581f2841eda19e7e0e4ab97fddcc54"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/payloads/qn90f/RootAgentLaunch.cs",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "eb5dd50dd64975550c85deeb12283a37aa99253bb6e78293a4a21e7182cd0131"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/payloads/qn90f/TaskCredentialProbe.cs",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "60e108935084aaa0bea78a1052e30711c3882cc97d1e892de1a24190ad4c1fcb"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/payloads/qn90f/UepStatusControl.cs",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "8eca9af6d3a3a1d4f2b82fd11e1b4d72f7de13cf4074fd6f875c856bf7c57406"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/pyproject.toml",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "c51303d9aa736dbb197f16baa41e79e253c53b25c6d50a6ae169c12a7e104547"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/src/samsung_tv_root/__init__.py",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "c01a308499f41c05553136a7a9e3d4c95117796a69f31ca449e792c742ba5912"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/src/samsung_tv_root/__main__.py",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "c2ee4ddb093c9af060cafaf68219907f8a6b7b301ed3f8bea75db7555adec987"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/src/samsung_tv_root/archive_root.py",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "bbea1addc87d826e053ccfa96c3e973acf6a6b3add416f817368ba9c628ad234"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/src/samsung_tv_root/capabilities.py",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "2459dc77c2bc804cfc8234b248e6fca8dcef4b51a84a5da081b8789919436733"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/src/samsung_tv_root/capture.py",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "6282a14ecc1e50f5147feb09b2537f899e42119d8b7f8c44c6f1018379757527"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/src/samsung_tv_root/cli.py",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "d5b0fc75b34194d40991ca91aaa42e2b191c64a3ea945fd4e24816eae6b799f0"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/src/samsung_tv_root/compatibility.py",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "89acea95172dbb5d9eddd356901cd8a98b54b8a93988202487c40b53c9c8a800"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/src/samsung_tv_root/config.py",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "747405eacced7aff19ae8c7cf9bc774c4c0448634672df331cef58341d0b280a"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/src/samsung_tv_root/control_api.py",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "7b1f36723e1965d344f3deb5971f0f0ccb21e4d6af132282b7f81ac0e3f7d5b1"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/src/samsung_tv_root/controller.py",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "695af1b0a0745bf46b3c6db6e5e034d3cce4c443f3819f9a458dd1ea9ce4cdbe"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/src/samsung_tv_root/daemon.py",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "80053e7a911b7aa363b794ce1235901840b20f217b9495db0daedea47efed161"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/src/samsung_tv_root/discovery.py",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "46426531e2f93dff7763b5e17818b4dc0f429073e961d04b6f2b1fdf093f6072"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/src/samsung_tv_root/display.py",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "518a1cf7223a5273c5860ce0f29b67c5a2a8042d09c7e8b45e9e98e1c8e34bdb"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/src/samsung_tv_root/doctor.py",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "c36312206c4c015a3f537db897cd68b61e768f030ac7ab33f488ccc97acb2d6b"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/src/samsung_tv_root/lifecycle.py",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "9df14b03dc5e9e3fe6724bd10eb8aee5f6b415a8394c89586461e29c3008c9f6"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/src/samsung_tv_root/local_dimming.py",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "3709447a3e48fd646557cdb08fa9a3090db5a3ae5549bb4e1cf166bdbb2fea0c"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/src/samsung_tv_root/native_events.py",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "4e964043cb7c5dd4c5f06b075e07a48ed9b0758f7ef37f8235130a7c2362a30e"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/src/samsung_tv_root/overlay.py",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "ba0db48b90ee0fc078ba8d5a63736e0b3e02b58954f5467902970a832f38680f"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/src/samsung_tv_root/qn90b.py",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "e172611998660d9f42c618585431e3862b24d6251c382a0372bc09f585b90a07"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/src/samsung_tv_root/qn90f.py",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "3692595859e54994a73f9153af08e7456dccc9807b6847c1f146a8c250f57ea2"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/src/samsung_tv_root/qn90f_shell.py",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "c4ba426e9bc45627dcdd2fefbe9bf47252b63bfee89021eb48f0688693456a79"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/src/samsung_tv_root/remote.py",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "b6151b46b410eb5d2ab969d7c042b1b96485a624a9a91b054d3438a54e0189af"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/src/samsung_tv_root/resources.py",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "70b66360ac7eba32d126d4d08f2a22ebee4847e8795cad0a8c4572c2a4e37af7"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/src/samsung_tv_root/root_agent.py",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "ee959b0e3c315d819a2a0fe89f3a45b744cea7f0330482b8059a82893b2a9c87"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/src/samsung_tv_root/sdb.py",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "eb4020ed0e4b75c7390ee41ef654fbcdf017b810b341955d2b7dab1180f132be"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/src/samsung_tv_root/service.py",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "2f038060e9b1219d01143a512eaac068aa9aa922604e8f63b669cc8e531de118"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/src/samsung_tv_root/source.py",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "c235805bc4b9a0cceff1a8f105b4104322166382e2ec98b812fcceabe9648c6e"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/src/samsung_tv_root/systemd_notify.py",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "ddd916cd43638e0060d8c2610536af49a3b285582a91d78accb2f74d68a91e61"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/src/samsung_tv_root/terminal.py",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "2e8d431c4589bf4e52f39dbf8405908303d1b68520f477fa3dc18549319c9502"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/src/samsung_tv_root/volume.py",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "64eb5a33f5ab4445e7c8e0ec02a1b443ec3cf9526a6a4fc35f9eeb4755d75097"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/swu/__init__.py",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "f7c0d89a77fe906879faf57abf02e7464c8377331543956a6fa5895e62467d7d"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/swu/swu_firmware_decrypt.py",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "5eb5dd7ff2ac651de1c074a293aa1fc22b31868376eee809380946ede0ae2e5e"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/swu/swu_formatted_passphrase_recover.py",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "6f03d4d70040ef386c267a870c0263ef8db9d6c2803f7ee8f813fdd6adc0459a"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/swu/swu_init_integrity_preload.c",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "da35fddbe35c3b814e6bcf245b2354dab64c62eaf67a9cea04d9d9fe8f71e5ba"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/swu/swu_init_oracle_batch_preload.c",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "be3e494b7aa1906ed0fa79679a1e3f1fd32bbb4fbf13ebb038f045edf944e83f"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/swu/swu_init_probe_preload.c",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "4c8ced57c19c4701bc4cb47e8ff29e1b835afcd187b26d53d2a23065113213f1"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/swu/swu_padding_oracle.py",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "a2d77d8951375e68c8dea8ba01b4e24fe29bebb61300ec299f8c973a24bf40e7"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/swu/swu_passphrase_dump.py",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "47456a7a0dbb7a1c8369df9de49379e7d5d8dd4152ffc86ddf73275ee7e633a5"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/swu/teec.py",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "668ef67bc8a7a1187ac74b230999fab5397f95b3a0b02472454842e4f3717359"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/tests/test_archive_root_e2e.py",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "2186519525895c255d532b2f2d69ff262ef77ed7e4f8170990a11f62fa5e2a19"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/tests/test_capabilities.py",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "bcb8c44a805062eb5a04033d5f27f52ec4ad9f5f9ec98b70b6a5cf05de0167f1"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/tests/test_capture.py",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "c84f1e876e75724d181bd57688ff8c8b829fa07219591f92d70a177cffeb1240"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/tests/test_cli.py",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "903e7a2c671060eceead259ee8a3bd1642a4b813ac7422c1ff8cd2621720a816"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/tests/test_compatibility.py",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "b2e3c9aaed95a74ee9f779b34a011ed0ee7767e64b5d14514d7a9fd2044e1c97"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/tests/test_config.py",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "5d3318bf45dc9fbf3e2a4076f2df88a0c64966cce69e9c0f095741f0da6537b0"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/tests/test_control_api.py",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "877b69a3c4fff9212865c707e21b5093a0d8e1407e3c90e9074598b18eef0d02"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/tests/test_daemon.py",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "35cc97706a25f1ba8c76d3591de12d676c94c4e167b9c28e5b3557f0e2daa627"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/tests/test_discovery.py",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "bf6945907fb4e33eb1790c943004648356753b97144c3356ae7f8cbecde476cd"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/tests/test_display.py",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "085be738ddea6a33570b867e29f8026f680fa9d568c6be82f9844fd616f3d539"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/tests/test_installation.py",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "2a800ca5abdb61bd70b18a52d12cb22bad00e4a5714ba67cb80c5800bf05062d"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/tests/test_lifecycle.py",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "2222d40590d625c4bd5eac4ff2b8d4342fd257e5e809b1c5d49559237e2b3b42"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/tests/test_native_events.py",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "c69db1b21fc99f71db107556f7e1297f77f11d40956824956aa8e97be8aaeff4"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/tests/test_overlay.py",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "db6d4fe772b6d9260368a1612166153d61fc6c15d6bbf3dacf95f733999616f2"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/tests/test_qn90b.py",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "1adfe8d514527d0bbcd58745389c1de45fcbd3c170c15453982dfcaee8ba6fd4"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/tests/test_qn90f.py",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "0deb7b19bd84ce44422aa3a107214f56aa1f8889cd3d87a3f5867c4248d1c146"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/tests/test_qn90f_shell.py",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "f9a5fc3056edc549b78fcb4a70cd553135ce9b41bd14e696a26763bbcbd51f49"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/tests/test_remote.py",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "61d7694a3e5d8d3732d5f442f41d9fa21edf36a6fb620a35ca6c3765a8e762e2"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/tests/test_root_agent.py",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "2942dd5e14a819652d9126bb09e9cc6c1269b46301eee8a4e88ec40a65197168"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/tests/test_sdb.py",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "5323b4f5b735afd246991ad5ce7a3d253945b75bad42d6fcbde8207e24072da7"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/tests/test_service.py",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "9f527aac1d5db1c7dd3a2a26742aa64ed2566270dc821c5e193923a20d58c5c7"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/tests/test_swu.py",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "183556e03bad846d62c77beec70cbe70a4bdd0b8f782d3187f849eacc0212164"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/tests/test_terminal.py",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "a2509b3803861957a13d2b5b041acd82a330860ac4183d279cda31279f0fa307"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/tests/test_volume.py",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "fc5f454f01ae9c3d48e37795e49016461e13a07026c5fdda67f09702887ab888"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/tools/audit_release.py",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "8bfaca00ecd9463f260b480dadbde3043027ea6c8a5887959456a41fa0644064"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/tools/build_release.py",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "0a8cab5b2283986efb479125088028b62dca18f64a4c2d015771da2b3aa14609"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/tools/frozen_entry.py",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "5915c93c39da88739b6ed96bd13c3e22af88dd412607296eec8ac901deafc3b2"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/tools/verify_release_assets.py",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "3eb21e12bac46194a5102e9c6dbfbd976a95bbf74a872f71cdb9bcb4487e30b3"
+    },
+    {
+      "file": "rooting/tools/samsung-tv-root-master/uv.lock",
+      "status": "added",
+      "originalSha256": null,
+      "candidateSha256": "24909c757febe61e6e0112d585c228b5673c8e65c1a48b28eacb16582a90a05c"
+    },
+    {
+      "file": "rooting/update-size.cjs",
+      "status": "modified",
+      "originalSha256": "353c4b749eaf44d8665d16476d9e445e53f099b8ec346044d123e6aedea1347b",
+      "candidateSha256": "90cd0450aa7b05f5a3590b177d208549d0afe3e8c38f331710b2ab3e3d9c31ce"
+    }
+  ]
+}

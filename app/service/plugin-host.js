@@ -3,14 +3,16 @@
 // in the plugin directory with a manifest.json and an entry file (docs/plugins.md):
 //
 //   manifest: { id, name, version, apiVersion: 1, permissions: ['exec'], main: 'index.js',
-//               ui: { label } (optional: a page in the dashboard sidebar while it runs) }
+//               ui: { label } (optional: a page in the dashboard sidebar while it runs),
+//               intercepts: [{ appId, label }] (optional: launcher tiles of those apps start this plugin's launch(appId)),
+//               controlCenter: { label } (optional: one card in the launcher's Control center, from card() and cardSelect(rowId)) }
 //   index.js: module.exports = function (ctx) { return { start, stop, status, route } }
 //
 // Most of Vetro's own features are not plugins yet; the launcher is the first bundled one (bundled: true, see
 // docs/PLUGIN-ARCHITECTURE.md). The host owns the lifecycle of the ones
 // that are added and keeps a failing plugin from taking Vetro down:
 // every call into a plugin is guarded, a plugin that keeps failing is switched
-// off, and a start that never completes makes the next boot come up in safe mode.
+// off, and two starts in a row that never complete make the next boot come up in safe mode.
 // Plain ES5 on purpose: the TV runs Node 4.4 (no worker_threads, no vm sandbox
 // worth the name), so this is fault isolation, not a security boundary.
 
@@ -26,10 +28,51 @@ var API_SUB_RE = /^api(?:\/(.*))?$/;
 var API_VERSION = 1;
 var PERMISSIONS = ['exec'];
 var ID_RE = /^[a-z][a-z0-9-]{1,31}$/;
+var APP_ID_RE = /^[A-Za-z0-9_.-]{1,120}$/;
+var CONTROL_RE = /[\u0000-\u001f\u007f<>]/;
+var INTERCEPT_MAX = 3;
+// The card a plugin adds to the Control center (manifest "controlCenter"): what the host lets through to the launcher.
+var CARD_ROWS_MAX = 7, CARD_ROW_ID_RE = /^[A-Za-z0-9_.-]{1,40}$/, CARD_LABEL_MAX = 40, CARD_VALUE_MAX = 24, CARD_NOTE_MAX = 80;
+var CARD_READ_MS = 3000, CARD_ACTION_MS = 10000;
+var TEXT_CONTROL_RE = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]+/g;
+var LAUNCH_MS = 120000;
+var SAFE_AFTER = 2;
 var RESERVED = ['install', 'resume', 'developer'];
 var SESSION_MS = 8 * 3600000, SESSION_MAX = 20;
 var BUNDLE_MAX_FILES = 20, BUNDLE_MAX_BYTES = 512 * 1024;
 var FILE_RE = /^[A-Za-z0-9_-][A-Za-z0-9._-]*(\/[A-Za-z0-9_-][A-Za-z0-9._-]*)*$/;
+
+// "intercepts": the apps whose launcher tile this plugin takes over, each with the name the Plugins page shows. Optional, and
+// not a permission, so a plugin that has it still loads on a Vetro that does not know it (unknown manifest keys are ignored).
+function checkIntercepts(list, who) {
+    if (list == null) return;
+    if (!Array.isArray(list) || !list.length || list.length > INTERCEPT_MAX) throw new Error(who + 'intercepts must be a list of 1-' + INTERCEPT_MAX + ' apps');
+    var seen = {};
+    for (var i = 0; i < list.length; i++) {
+        var a = list[i];
+        if (!a || typeof a !== 'object' || Array.isArray(a)) throw new Error(who + 'intercepts[' + i + '] must be an object with appId and label');
+        if (typeof a.appId !== 'string' || !APP_ID_RE.test(a.appId) || /^\.+$/.test(a.appId)) throw new Error(who + 'intercepts[' + i + '].appId must be a Tizen app id');
+        if (typeof a.label !== 'string' || !a.label.trim() || a.label.length > 24 || CONTROL_RE.test(a.label)) throw new Error(who + 'intercepts[' + i + '].label must be 1-24 characters of plain text');
+        if (seen[a.appId]) throw new Error(who + 'intercepts lists ' + a.appId + ' twice');
+        seen[a.appId] = true;
+    }
+}
+
+// "controlCenter": { label } makes the plugin's card() appear as a card of the Control center while the plugin runs. Optional and not a
+// permission (an older Vetro ignores the key and still loads the plugin). One card per plugin.
+function checkControlCenter(cc, who) {
+    if (cc == null) return;
+    if (typeof cc !== 'object' || Array.isArray(cc)) throw new Error(who + 'controlCenter must be an object with a label');
+    if (typeof cc.label !== 'string' || !cc.label.trim() || cc.label.length > 24 || CONTROL_RE.test(cc.label)) throw new Error(who + 'controlCenter.label must be 1-24 characters of plain text');
+}
+
+function copyControlCenter(cc) {
+    return cc ? { label: cc.label } : null;
+}
+
+function copyIntercepts(list) {
+    return (list || []).map(function (a) { return { appId: a.appId, label: a.label }; });
+}
 
 // Manifest rules shared by the loader, the installer and `vetro-plugin.cjs pack/check`.
 function checkManifest(m) {
@@ -45,6 +88,8 @@ function checkManifest(m) {
     if (m.author != null && (typeof m.author !== 'string' || m.author.length > 60)) throw new Error('author must be a string of up to 60 characters');
     if (m.ui != null && (typeof m.ui.label !== 'string' || !m.ui.label || m.ui.label.length > 24)) throw new Error('ui.label must be 1-24 characters');
     if (m.main != null && (typeof m.main !== 'string' || !FILE_RE.test(m.main))) throw new Error('main must be a file name inside the plugin folder');
+    checkIntercepts(m.intercepts, '');
+    checkControlCenter(m.controlCenter, '');
 }
 
 // A whole bundle object (parsed JSON): manifest, file names, sizes, entry file. Returns the file names.
@@ -87,6 +132,9 @@ function PluginHost(opts) {
     this.execute = opts.execute || null;       // agent command runner, only lent to plugins asking for 'exec'
     this.maxErrors = opts.maxErrors || 3;      // consecutive failures before a plugin is switched off
     this.stableMs = opts.stableMs == null ? 60000 : opts.stableMs;
+    // Starts in a row that did not stay up for stableMs before the next one comes up in safe mode. One alone is not enough:
+    // turning the TV off in the first minute after an update or a restart is common and is not a plugin crashing Vetro.
+    this.safeAfter = opts.safeAfter || SAFE_AFTER;
     this.registry = opts.registry || null;     // URL of the plugin list the dashboard shows
     this.external = opts.external !== false;   // load plugin folders from dir
     // Public key of the plugin list (PEM), a different key from the one that signs Vetro updates. Without it
@@ -98,6 +146,8 @@ function PluginHost(opts) {
     this.services = opts.services || {};        // what Vetro lends to bundled plugins only (ctx.vetro)
     this.entries = Object.create(null);
     this.order = [];
+    this.listeners = [];                       // see onInterceptChange
+    this.cardJobs = Object.create(null);       // plugin id -> reads and actions of its Control center card that are under way
     this.safeMode = false;
     this.started = false;
     this.stableTimer = null;
@@ -168,7 +218,7 @@ PluginHost.prototype._loadFolder = function (id, folder) {
     };
     this.register({
         id: id, name: manifest.name, version: manifest.version, description: manifest.description, author: manifest.author, apiVersion: manifest.apiVersion,
-        permissions: manifest.permissions, ui: manifest.ui, create: create
+        permissions: manifest.permissions, ui: manifest.ui, intercepts: manifest.intercepts, controlCenter: manifest.controlCenter, create: create
     });
 };
 
@@ -309,6 +359,8 @@ PluginHost.prototype.register = function (def) {
     if (def.ui != null && (typeof def.ui.label !== 'string' || !def.ui.label || def.ui.label.length > 24)) {
         throw new Error(def.id + ': ui.label must be 1-24 characters');
     }
+    checkIntercepts(def.intercepts, def.id + ': ');
+    checkControlCenter(def.controlCenter, def.id + ': ');
     // A bundled plugin ships in the Vetro package: on unless its definition says otherwise.
     this.entries[def.id] = {
         def: def, instance: null, state: 'stopped', errors: 0, lastError: null,
@@ -393,6 +445,7 @@ PluginHost.prototype._halt = function (entry) {
     var inst = entry.instance;
     entry.instance = null;
     try { if (inst && inst.stop) inst.stop(); } catch (e) { /* already failing */ }
+    if (inst) this._interceptsChanged(entry);
 };
 
 // An exception that nothing caught: a timer or socket callback of a plugin runs outside every guard above, and an
@@ -424,6 +477,7 @@ PluginHost.prototype._startEntry = function (entry) {
         entry.state = 'running';
         entry.errors = 0;
         entry.lastError = null;
+        this._interceptsChanged(entry);
     } catch (e) {
         this._halt(entry);                    // give a half-started plugin the chance to release what it grabbed
         entry.state = 'failed';
@@ -432,13 +486,210 @@ PluginHost.prototype._startEntry = function (entry) {
     }
 };
 
+// --- plugins that take over a launcher tile (manifest "intercepts") -------------------------------------------------------
+// A plugin claims an app by listing it in its manifest and exporting launch(appId) (a Promise). The claim only counts while the
+// plugin is running, so switching it off gives the tile back. Two running plugins on one app: neither wins, the tile launches
+// the app as before and both plugins' entries say so.
+
+PluginHost.prototype._claimants = function (appId) {
+    var ids = [];
+    for (var i = 0; i < this.order.length; i++) {
+        var entry = this.entries[this.order[i]];
+        if (!entry || !entry.instance || entry.state !== 'running') continue;
+        var list = entry.def.intercepts || [];
+        for (var j = 0; j < list.length; j++) if (list[j].appId === appId) { ids.push(entry.def.id); break; }
+    }
+    return ids;
+};
+
+PluginHost.prototype._conflictsOf = function (id) {
+    var entry = this.entries[id], out = [];
+    if (!entry || !entry.instance || entry.state !== 'running') return out;
+    var list = entry.def.intercepts || [];
+    for (var j = 0; j < list.length; j++) if (this._claimants(list[j].appId).length > 1) out.push(list[j].appId);
+    return out;
+};
+
+// {appId: {plugin, label}} for the apps with exactly one running claimant that can launch. The launcher builds its list from this.
+PluginHost.prototype.intercepted = function () {
+    var out = {};
+    for (var i = 0; i < this.order.length; i++) {
+        var entry = this.entries[this.order[i]];
+        if (!entry || !entry.instance || entry.state !== 'running' || typeof entry.instance.launch !== 'function') continue;
+        var list = entry.def.intercepts || [];
+        for (var j = 0; j < list.length; j++) {
+            if (this._claimants(list[j].appId).length === 1) out[list[j].appId] = { plugin: entry.def.id, label: list[j].label };
+        }
+    }
+    return out;
+};
+
+// Starts the app through the plugin that claims it. Always resolves: {handled: true, plugin} when the plugin started it, else
+// {handled: false, reason} and the caller starts the app itself (a failing or slow plugin must not leave a dead tile).
+PluginHost.prototype.launch = function (appId) {
+    var host = this, ids = this._claimants(appId);
+    if (ids.length !== 1) return Promise.resolve({ handled: false, reason: ids.length ? 'Several plugins claim ' + appId : 'No plugin claims ' + appId });
+    var entry = this.entries[ids[0]];
+    if (typeof entry.instance.launch !== 'function') return Promise.resolve({ handled: false, reason: ids[0] + ' has no launch()' });
+    return new Promise(function (resolve) {
+        var done = false, timer = null;
+        function finish(result) {
+            if (done) return;
+            done = true;
+            if (timer) clearTimeout(timer);
+            resolve(result);
+        }
+        timer = setTimeout(function () { finish({ handled: false, reason: ids[0] + ' did not answer in time' }); }, host.launchMs || LAUNCH_MS);
+        if (timer.unref) timer.unref();
+        var out;
+        try { out = entry.instance.launch(appId); }
+        catch (e) { entry.lastError = String(e && e.message || e); finish({ handled: false, reason: entry.lastError }); return; }
+        Promise.resolve(out).then(function (r) {
+            finish(r === false ? { handled: false, reason: ids[0] + ' declined' } : { handled: true, plugin: ids[0] });
+        }, function (e) {
+            entry.lastError = String(e && e.message || e);
+            finish({ handled: false, reason: entry.lastError });
+        });
+    });
+};
+
+// --- plugins that add a card to the Control center (manifest "controlCenter") ----------------------------------------------------
+// The card is read from the plugin's card() and chosen with cardSelect(rowId); both may answer directly or with a Promise. The launcher
+// never runs plugin code: it asks Vetro (routes of the launcher plugin), and everything the plugin returns is cleaned here first (rows,
+// lengths, control characters), so the launcher only ever gets short plain text. The card exists only while the plugin is running.
+// Errors and timeouts of the card are the card's own ("Not available"): they never count towards the failures that switch a plugin off.
+
+function cardText(v, max) {
+    if (typeof v === 'number' && isFinite(v)) v = String(v);
+    if (typeof v !== 'string') return '';
+    var t = v.replace(TEXT_CONTROL_RE, ' ').replace(/^\s+|\s+$/g, '');
+    return t.length > max ? t.slice(0, max).replace(/\s+$/, '') : t;
+}
+
+// What card() returned, as the launcher may see it, or null when it is not an object at all.
+function cleanCard(raw) {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+    var rows = [], seen = Object.create(null), list = Array.isArray(raw.rows) ? raw.rows : [];
+    for (var i = 0; i < list.length && rows.length < CARD_ROWS_MAX; i++) {
+        var r = list[i];
+        if (!r || typeof r !== 'object' || typeof r.id !== 'string' || !CARD_ROW_ID_RE.test(r.id) || seen[r.id]) continue;
+        var label = cardText(r.label, CARD_LABEL_MAX);
+        if (!label) continue;
+        seen[r.id] = true;
+        rows.push({ id: r.id, label: label, value: cardText(r.value, CARD_VALUE_MAX), ticked: r.ticked === true });
+    }
+    return { rows: rows, note: cardText(raw.note, CARD_NOTE_MAX), choosable: raw.choosable !== false && rows.length > 0 };
+}
+
+// The running plugins that have a card, in registration order: [{plugin, label}]. The dock builds its --cards from this.
+PluginHost.prototype.cards = function () {
+    var out = [];
+    for (var i = 0; i < this.order.length; i++) {
+        var entry = this.entries[this.order[i]];
+        if (!entry || !entry.instance || entry.state !== 'running' || !entry.def.controlCenter) continue;
+        if (typeof entry.instance.card !== 'function' || typeof entry.instance.cardSelect !== 'function') continue;
+        out.push({ plugin: entry.def.id, label: entry.def.controlCenter.label });
+    }
+    return out;
+};
+
+PluginHost.prototype._cardEntry = function (id) {
+    var entry = typeof id === 'string' && ID_RE.test(id) ? this.entries[id] : null;
+    if (!entry || !entry.def.controlCenter) return { reason: 'No such card' };
+    if (!entry.instance || entry.state !== 'running') return { reason: 'Not running' };
+    if (typeof entry.instance.card !== 'function' || typeof entry.instance.cardSelect !== 'function') return { reason: 'The Shard has no card() and cardSelect()' };
+    return { entry: entry };
+};
+
+// Calls fn() (a plugin method) with a deadline. Always resolves: {value} or {error}. A plugin stopped meanwhile counts as an error.
+PluginHost.prototype._cardCall = function (entry, ms, fn) {
+    var inst = entry.instance;
+    return new Promise(function (resolve) {
+        var done = false, timer = null;
+        function finish(r) {
+            if (done) return;
+            done = true;
+            if (timer) clearTimeout(timer);
+            resolve(entry.instance !== inst ? { error: 'The Shard was switched off' } : r);
+        }
+        timer = setTimeout(function () { finish({ error: 'The Shard did not answer in time' }); }, ms);
+        if (timer.unref) timer.unref();
+        var out;
+        try { out = fn(inst); }
+        catch (e) { finish({ error: String(e && e.message || e) }); return; }
+        Promise.resolve(out).then(function (v) { finish({ value: v }); }, function (e) { finish({ error: String(e && e.message || e) }); });
+    });
+};
+
+PluginHost.prototype._cardFail = function (entry, reason) {
+    entry.cardError = cardText(reason, 120) || 'Not available';
+    return { ok: false, unavailable: true, reason: entry.cardError };
+};
+
+// Reads the card of a plugin. Always resolves: {ok: true, label, rows, note, choosable} or {ok: false, unavailable: true, reason}.
+// Reads that overlap (the Control center opened again while a slow plugin is still answering) share one call.
+PluginHost.prototype.cardOf = function (id) {
+    var host = this, found = this._cardEntry(id);
+    if (!found.entry) return Promise.resolve({ ok: false, unavailable: true, reason: found.reason });
+    var entry = found.entry, jobs = this.cardJobs[id] || (this.cardJobs[id] = {});
+    if (jobs.read) return jobs.read;
+    var job = this._cardCall(entry, this.cardReadMs || CARD_READ_MS, function (inst) { return inst.card(); }).then(function (r) {
+        if (jobs.read === job) jobs.read = null;
+        if (r.error) return host._cardFail(entry, r.error);
+        var card = cleanCard(r.value);
+        if (!card) return host._cardFail(entry, 'card() returned no card');
+        entry.cardError = null;
+        return { ok: true, label: entry.def.controlCenter.label, rows: card.rows, note: card.note, choosable: card.choosable };
+    });
+    jobs.read = job;
+    return job;
+};
+
+// Chooses a row. Always resolves: {ok: true|false, note, card} where card is what cardOf() gives (the state after the action: the rows
+// cardSelect() returned, else a fresh read), or {ok: false, unavailable: true, reason} when the card cannot be used at all. One action
+// at a time per plugin: a second one while the first is under way is refused, not queued.
+PluginHost.prototype.selectCard = function (id, rowId) {
+    var host = this, found = this._cardEntry(id);
+    if (!found.entry) return Promise.resolve({ ok: false, unavailable: true, reason: found.reason });
+    if (typeof rowId !== 'string' || !CARD_ROW_ID_RE.test(rowId)) return Promise.resolve({ ok: false, unavailable: true, reason: 'Invalid row' });
+    var entry = found.entry, jobs = this.cardJobs[id] || (this.cardJobs[id] = {});
+    if (jobs.action) return Promise.resolve({ ok: false, note: 'Another change is under way', card: null });
+    var job = this._cardCall(entry, this.cardActionMs || CARD_ACTION_MS, function (inst) { return inst.cardSelect(rowId); }).then(function (r) {
+        if (jobs.action === job) jobs.action = null;
+        if (r.error) {
+            host._cardFail(entry, r.error);
+            return { ok: false, note: cardText(r.error, CARD_NOTE_MAX), card: null };
+        }
+        var v = r.value, ok = !(v === false || (v && typeof v === 'object' && v.ok === false));
+        var note = v && typeof v === 'object' ? cardText(v.note, CARD_NOTE_MAX) : '';
+        var fresh = v && typeof v === 'object' && Array.isArray(v.rows) ? cleanCard({ rows: v.rows, note: v.note, choosable: v.choosable }) : null;
+        if (fresh && fresh.rows.length) {
+            entry.cardError = null;
+            return { ok: ok, note: note, card: { ok: true, label: entry.def.controlCenter.label, rows: fresh.rows, note: fresh.note, choosable: fresh.choosable } };
+        }
+        return host.cardOf(id).then(function (card) { return { ok: ok, note: note, card: card }; });
+    });
+    jobs.action = job;
+    return job;
+};
+
+// fn() runs after a running plugin that claims apps or adds a Control center card starts or stops, so the launcher can rebuild its list. A plugin that listens
+// must not throw; one that does is ignored.
+PluginHost.prototype.onInterceptChange = function (fn) {
+    if (typeof fn === 'function') this.listeners.push(fn);
+};
+
+PluginHost.prototype._interceptsChanged = function (entry) {
+    if ((!entry.def.intercepts && !entry.def.controlCenter) || !this.listeners.length) return;
+    for (var i = 0; i < this.listeners.length; i++) { try { this.listeners[i](); } catch (e) { /* the listener's problem */ } }
+};
+
 PluginHost.prototype.start = function () {
     if (this.started) return this.list();
     this.started = true;
     var state = this._readState();
-    var interrupted = false;
-    try { interrupted = fs.existsSync(this._file('starting')); } catch (e) { /* treated as clean */ }
-    if (interrupted && !state.suspended) {
+    var missed = this._missedStarts();
+    if (missed >= this.safeAfter && !state.suspended) {
         state.suspended = true;
         try { this._writeState(state); } catch (e) { /* best effort */ }
     }
@@ -457,7 +708,8 @@ PluginHost.prototype.start = function () {
     try {
         fs.mkdirSync(this.dir);
     } catch (e) { /* exists */ }
-    try { fs.writeFileSync(this._file('starting'), String(Date.now())); } catch (e) { /* no marker, no safe mode */ }
+    // The marker counts this start too: if it does not stay up either, the next start finds one more.
+    try { fs.writeFileSync(this._file('starting'), JSON.stringify({ missed: missed + 1, at: Date.now() })); } catch (e) { /* no marker, no safe mode */ }
     if (this.external) this._loadExternal();
     for (var i = 0; i < this.order.length; i++) {
         var entry = this.entries[this.order[i]];
@@ -468,6 +720,16 @@ PluginHost.prototype.start = function () {
     this.stableTimer = setTimeout(function () { host.markStable(); }, this.stableMs);
     if (this.stableTimer.unref) this.stableTimer.unref();
     return this.list();
+};
+
+// How many starts in a row ended before they were stable: 0 without a marker. A marker of an older Vetro (a bare time) or
+// one that cannot be read is one start.
+PluginHost.prototype._missedStarts = function () {
+    var text;
+    try { text = fs.readFileSync(this._file('starting'), 'utf8'); } catch (e) { return 0; }
+    var n = 1;
+    try { var m = JSON.parse(text); if (m && typeof m === 'object' && m.missed >= 1 && m.missed < 1000) n = Math.floor(m.missed); } catch (e) { /* older marker */ }
+    return n;
 };
 
 // Boot survived long enough: the next boot does not need to be careful.
@@ -505,12 +767,28 @@ PluginHost.prototype.setEnabled = function (id, on) {
     return this.status(id);
 };
 
-// Leaves safe mode; plugins start again on the next boot.
+// Leaves safe mode and starts the paused plugins now (#190: it used to only clear the flag and wait for a restart of
+// Vetro that no screen offers). This start has to prove itself like any other: the marker says one start short of safe
+// mode, so a plugin that takes Vetro down twice more is paused again, while the TV turned off once is not enough.
 PluginHost.prototype.resume = function () {
     var state = this._readState();
     state.suspended = false;
     this._writeState(state);
-    return { ok: true, restartRequired: this.safeMode };
+    if (!this.safeMode || !this.started) return { ok: true, restartRequired: false };
+    this.safeMode = false;
+    try { fs.writeFileSync(this._file('starting'), JSON.stringify({ missed: Math.max(1, this.safeAfter - 1), at: Date.now() })); } catch (e) { /* no marker, no safe mode */ }
+    for (var i = 0; i < this.order.length; i++) {
+        var entry = this.entries[this.order[i]];
+        if (entry.def.bundled || entry.state !== 'suspended') continue;
+        var flag = state.enabled[entry.def.id];
+        if (flag == null ? entry.defaultEnabled : flag) { entry.errors = 0; this._startEntry(entry); }
+        else entry.state = 'stopped';
+    }
+    var host = this;
+    if (this.stableTimer) clearTimeout(this.stableTimer);
+    this.stableTimer = setTimeout(function () { host.markStable(); }, this.stableMs);
+    if (this.stableTimer.unref) this.stableTimer.unref();
+    return { ok: true, restartRequired: false };
 };
 
 PluginHost.prototype.get = function (id) {
@@ -535,6 +813,9 @@ PluginHost.prototype.status = function (id) {
         author: entry.def.author || null,
         apiVersion: entry.def.apiVersion,
         permissions: (entry.def.permissions || []).slice(),
+        intercepts: copyIntercepts(entry.def.intercepts),
+        controlCenter: entry.def.controlCenter ? { label: entry.def.controlCenter.label, error: entry.cardError || null } : null,
+        interceptConflicts: this._conflictsOf(id),
         bundled: !!entry.def.bundled,
         trust: entry.def.bundled ? 'bundled' : st.trust[id] || 'folder',
         enabled: enabled == null ? entry.defaultEnabled : enabled,
@@ -608,16 +889,22 @@ PluginHost.prototype.handle = function (req, res, pathname, json, readBody) {
             if (p.on && !self.developerAllowed()) {
                 return json(res, { ok: false, error: 'Developer mode is not available in this build: it has no sign-in, so anyone on the network could use it to run code.' }, 403);
             }
-            var state = self._readState();
-            state.developer = p.on;
-            self._writeState(state);
+            try {
+                var state = self._readState();
+                state.developer = p.on;
+                self._writeState(state);
+            } catch (e) { return json(res, { ok: false, error: 'The setting could not be saved: ' + e.message }, 500); }
             json(res, { ok: true, developer: p.on });
         });
         return true;
     }
     if (id === 'resume') {
         if (req.method !== 'POST') json(res, { error: 'Method not allowed' }, 405);
-        else json(res, this.resume());
+        else {
+            var resumed;
+            try { resumed = this.resume(); } catch (e) { json(res, { ok: false, error: 'Plugins could not be resumed: ' + e.message }, 500); return true; }
+            json(res, resumed);
+        }
         return true;
     }
     var entry = this.entries[id];
@@ -683,4 +970,5 @@ PluginHost.prototype.handle = function (req, res, pathname, json, readBody) {
     return true;
 };
 
-module.exports = { PluginHost: PluginHost, signedText: signedText, API_VERSION: API_VERSION, BUNDLE_MAX_BYTES: BUNDLE_MAX_BYTES, checkManifest: checkManifest, checkBundle: checkBundle };
+module.exports = { PluginHost: PluginHost, signedText: signedText, API_VERSION: API_VERSION, BUNDLE_MAX_BYTES: BUNDLE_MAX_BYTES, checkManifest: checkManifest, checkBundle: checkBundle, checkIntercepts: checkIntercepts, INTERCEPT_MAX: INTERCEPT_MAX,
+    checkControlCenter: checkControlCenter, CARD_ROWS_MAX: CARD_ROWS_MAX, CARD_ROW_ID_RE: CARD_ROW_ID_RE, CARD_LABEL_MAX: CARD_LABEL_MAX, CARD_VALUE_MAX: CARD_VALUE_MAX, CARD_NOTE_MAX: CARD_NOTE_MAX, CARD_READ_MS: CARD_READ_MS, CARD_ACTION_MS: CARD_ACTION_MS };

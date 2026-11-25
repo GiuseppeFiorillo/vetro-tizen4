@@ -42,8 +42,13 @@ function install(env) {
     }
 
     if (!acceptsString(BufferRef)) {
-        // Here Buffer.from is the inherited TypedArray.from, which rejects
-        // strings. The inherited property is not writable, so define an own one.
+        // Here Buffer.from is the inherited TypedArray.from. On Node 4.4 (V8 4.5) it
+        // refuses to build a Buffer at all ("this is not a typed array": Buffer's
+        // prototype has no BYTES_PER_ELEMENT of its own), for strings and for arrays
+        // alike, so both are built here. The MQTT client makes every packet with
+        // Buffer.from([...]): left to the inherited function it ended the service as
+        // soon as a broker was configured (#77). The inherited property is not
+        // writable, so define an own one.
         var typedArrayFrom = BufferRef.from;
         Object.defineProperty(BufferRef, 'from', {
             configurable: true,
@@ -53,10 +58,8 @@ function install(env) {
                     throw new TypeError('Buffer.from requires a string, buffer or array');
                 }
                 if (typeof value !== 'string') {
-                    // On Node 4 the inherited TypedArray.from rejects arrays and
-                    // Buffers too. Its legacy constructor handles both, copying
-                    // bytes; on modern Node keep the captured native function.
-                    if (typeof BufferRef.allocUnsafe === 'function') return typedArrayFrom.apply(BufferRef, arguments);
+                    // Keep the Tizen 4 bounds checks and 0.7's explicit array copy:
+                    // inherited TypedArray.from also rejects arrays on Node 4.
                     if (typeof ArrayBuffer !== 'undefined' && value instanceof ArrayBuffer) {
                         var offset = encoding === undefined ? 0 : Number(encoding);
                         var length = arguments[2] === undefined ? value.byteLength - offset : Number(arguments[2]);
@@ -64,9 +67,16 @@ function install(env) {
                             !isFinite(length) || length < 0 || Math.floor(length) !== length || offset + length > value.byteLength) {
                             throw new RangeError('Buffer.from ArrayBuffer bounds');
                         }
+                        if (typeof BufferRef.allocUnsafe === 'function') return typedArrayFrom.apply(BufferRef, arguments);
                         return new BufferRef(value).slice(offset, offset + length);
                     }
-                    return new BufferRef(value);
+                    if (value && typeof value.length === 'number') {
+                        var count = value.length >>> 0;
+                        var copy = typeof BufferRef.allocUnsafe === 'function' ? BufferRef.allocUnsafe(count) : new BufferRef(count);
+                        for (var i = 0; i < count; i++) copy[i] = value[i] & 255;
+                        return copy;
+                    }
+                    return typedArrayFrom.apply(BufferRef, arguments);
                 }
                 // Not `new Buffer(value)`: on a modern runtime that constructor
                 // delegates back to Buffer.from and would recurse.

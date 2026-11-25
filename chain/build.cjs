@@ -18,21 +18,19 @@ const DIST = path.join(__dirname, 'dist');
 // package" unless the assemblies and the res/ images are installed with Vetro. Both builds
 // are shipped; dock.js picks the one this TV's runtime can start.
 function nativeDockFiles() {
-    const dockDir = path.join(APP, 'native', 'dock');
-    const files = ['tvlauncher-dotnet.dll', 'tvlauncher-dotnet.runtimeconfig.json',
-        'tvlauncher-dotnet-2.0.dll', 'tvlauncher-dotnet-2.0.runtimeconfig.json']
-        .filter(name => fs.existsSync(path.join(dockDir, name)))
-        .map(name => ({uri: encodeURIComponent('native/dock/' + name), data: fs.readFileSync(path.join(dockDir, name))}));
-    const resRoot = path.join(ROOT, 'dock', 'res');
-    (function walk(dir, rel) {
-        fs.readdirSync(dir).sort().forEach(name => {
-            const full = path.join(dir, name), next = rel ? rel + '/' + name : name;
-            if (fs.statSync(full).isDirectory()) walk(full, next);
-            else if (/\.(png|tsv)$/.test(name)) {
-                files.push({uri: encodeURIComponent('native/dock/res/' + next), data: fs.readFileSync(full)});
+    const files = [];
+    for (const part of ['dock', 'tuner']) {
+        const nativeDir = path.join(APP, 'native', part);
+        const names = part === 'dock' ? ['tvlauncher-dotnet.dll','tvlauncher-dotnet.runtimeconfig.json','tvlauncher-dotnet-2.0.dll','tvlauncher-dotnet-2.0.runtimeconfig.json'] : ['vetro-tuner.dll','vetro-tuner.runtimeconfig.json'];
+        for (const name of names) if (fs.existsSync(path.join(nativeDir,name))) files.push({uri:encodeURIComponent('native/'+part+'/'+name),data:fs.readFileSync(path.join(nativeDir,name))});
+        (function walk(dir,rel) {
+            for (const name of fs.readdirSync(dir).sort()) {
+                const full=path.join(dir,name),next=rel?rel+'/'+name:name;
+                if (fs.statSync(full).isDirectory()) walk(full,next);
+                else if (/\.(png|tsv)$/.test(name)) files.push({uri:encodeURIComponent('native/'+part+'/res/'+next),data:fs.readFileSync(full)});
             }
-        });
-    })(resRoot, '');
+        })(path.join(ROOT,part,'res'),'');
+    }
     return files;
 }
 

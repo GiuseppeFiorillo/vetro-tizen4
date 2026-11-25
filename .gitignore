@@ -1,61 +1,27 @@
-# Build artifact & dependencies
-node_modules/
-dist/
-mint.log
-
-# Private keys / signing material (never commit)
-*.p12
-*.pfx
-*privatekey*.pem
-certs/samsung/
-
-# Local log/marker files
-*.log
-
-# OS
-.DS_Store
-# Private reports, retired experiments and local device tools
-/app/diagnostics/
-/rooting/on-boot-probe/*
-!/rooting/on-boot-probe/package.json
-!/rooting/on-boot-probe/package-lock.json
-/rooting/tools/tizen/
-/rooting/tools/payloads31/
-/rooting/tools/*.wgt
-/rooting/tools/sign-external.cjs
-/rooting/tools/upload-via-exec.py
-.claude/
-.codex/
-.agents/
+out/
+**/dist/
+**/bin/
+**/obj/
+**/node_modules/
+**/__pycache__/
+.local/
 .env
 .env.*
-__pycache__/
+!.env.example
+firmware/
+*.log
 *.pyc
-*.wgt
+*.img
+*.msd
 *.zip
-*.tar.gz
-*.cer
-*.crt
+*.tar
+*.tgz
+*.xz
+*.p12
+*.pfx
+*.pem
 *.key
-
-# Rejected local experiments and their historical test
-/app/experiments/
-/app/tests/animations.test.cjs
-
-# Dock launcher build output
-/dock/**/bin/
-/dock/**/obj/
-
-# Root integration runtime and generated installers
-/kant-m2-root/state/
-/kant-m2-root/out/
-*.runtimeconfig.dev.json
-# Local diagnostic material and tooling
-/.impeccable/
-/private/
-.env*
-!**/.env.example
-
-# Generated update bundles and private release key
-/out/
-update-private.pem
+*.dpapi
+*.wgt
+.DS_Store
+Thumbs.db

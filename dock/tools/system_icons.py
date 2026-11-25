@@ -26,6 +26,11 @@ RIM_ALPHA = int(round(255 * layout_consts.design_num("IconRimAlpha")))
 SYSTEM = {
     "settings": ("Settings", "key:XF86SysMenu", "org.tizen.menu", (196, 204, 220)),
     "samsunghome": ("Samsung Home", "sys:com.samsung.tv.csfs", None, (196, 204, 220)),
+    # The apps row's first pill opens the All apps page; Samsung's store closes that page, after Settings.
+    "allapps": ("All apps", "panel:allapps", None, (196, 204, 220)),
+    "store": ("App store", "sys:com.samsung.tv.store", None, (196, 204, 220)),
+    # TV-Store takes the store's place on All apps when it is installed (Vetro writes the line, see dock-catalog.js); same bag glyph.
+    "tvstore": ("TV-Store", "sys:A2STVStore.Store", "com.samsung.tv.store", (196, 204, 220)),
 }
 
 
@@ -119,9 +124,23 @@ def _phosphor(name, box):
     return draw
 
 
+def _glyph_grid(d, c, acc):
+    # "all apps": four rounded squares, the heavy line of the back arrow
+    s = SS
+    for x, y in ((28, 28), (72, 28), (28, 72), (72, 72)):
+        d.rounded_rectangle((x * s, y * s, (x + 28) * s, (y + 28) * s), radius=7 * s, outline=c, width=9 * s)
+
+
+def _glyph_bag(d, c, acc):
+    # "app store": a shopping bag, its handle a half circle
+    s = SS
+    d.rounded_rectangle((26 * s, 46 * s, 102 * s, 106 * s), radius=10 * s, outline=c, width=9 * s)
+    _line(d, [(46, 62), (46, 46)] + _arc(64, 46, 18, 180, 360) + [(82, 62)], c, 9)
+
+
 # The line glyphs above stay as a fallback; the shipped look uses Phosphor bold so all three share one hand.
-GLYPH_HEIGHT = {"settings": 23, "samsunghome": 16}
-GLYPHS = {"settings": _phosphor("gear-six-bold", 62), "samsunghome": _glyph_back}
+GLYPH_HEIGHT = {"settings": 23, "samsunghome": 16, "allapps": 19, "store": 21, "tvstore": 21}
+GLYPHS = {"settings": _phosphor("gear-six-bold", 62), "samsunghome": _glyph_back, "allapps": _glyph_grid, "store": _glyph_bag, "tvstore": _glyph_bag}
 
 
 # The inputs panel: slug -> (label, Samsung SourceType, accent). TV is 0, HDMI 1-4 are 13-16.
@@ -131,6 +150,8 @@ INPUTS = {
     "in-hdmi2": ("HDMI 2", 14, (90, 169, 255)),
     "in-hdmi3": ("HDMI 3", 15, (90, 169, 255)),
     "in-hdmi4": ("HDMI 4", 16, (90, 169, 255)),
+    # Samsung's monitors (Odyssey, Smart Monitor) have a DisplayPort input, source type 33, listed only where the device has it (#215).
+    "in-dp": ("DisplayPort", 33, (90, 169, 255)),
 }
 
 
@@ -172,9 +193,28 @@ def _hdmi_glyph(number):
     return draw
 
 
+def _dp_glyph():
+    """DisplayPort in the HDMI icons' hand: the port with its one cut corner, and "DP" under it in the pill font's bold."""
+    def draw(d, c, acc):
+        port = [(28, 22), (100, 22), (100, 42), (90, 52), (28, 52), (28, 22)]
+        _line(d, port, c, 7)
+        for x in (50, 64, 78):
+            _line(d, [(x, 31), (x, 40)], c, 5)
+        font = _pill_font(40 * SS)
+        layer = Image.new("RGBA", (SIZE * SS, SIZE * SS), (0, 0, 0, 0))
+        ld = ImageDraw.Draw(layer)
+        tb = ld.textbbox((0, 0), "DP", font=font)
+        x = (SIZE * SS - (tb[2] - tb[0])) // 2 - tb[0]
+        y = 66 * SS - tb[1]
+        ld.text((x, y), "DP", font=font, fill=c)
+        return ("overlay", layer)
+    return draw
+
+
 def render_input(slug, path):
     accent = INPUTS[slug][2]
-    glyph = _phosphor("television-simple-bold", 66) if slug == "in-tv" else _hdmi_glyph(int(slug[-1]))
+    glyph = (_phosphor("television-simple-bold", 66) if slug == "in-tv" else _dp_glyph() if slug == "in-dp"
+             else _hdmi_glyph(int(slug[-1])))
     _render(accent, glyph, path)
 
 
@@ -250,7 +290,10 @@ def render(slug, path):
     out = tile.copy()
     out.alpha_composite(g, (x0, (tile.height - g.height) // 2))
     text = Image.new("RGBA", tile.size, (0, 0, 0, 0))
-    ImageDraw.Draw(text).text((x0 + g.width + gap - tb[0], (tile.height - th) // 2 - tb[1]), label, font=font, fill=(255, 255, 255, 255))
+    # Placed by its capitals, not by its ink box: a name with a descender ("All apps", "App store") was lifted by it, and every
+    # label sat about 2 px above the glyph and the capsule's middle.
+    cap = probe.textbbox((0, 0), "H", font=font)
+    ImageDraw.Draw(text).text((x0 + g.width + gap - tb[0], (tile.height - (cap[3] - cap[1])) // 2 - cap[1]), label, font=font, fill=(255, 255, 255, 255))
     out = Image.alpha_composite(out, text)   # no shadow: the pill sits on the opaque bar
     out = out.resize((PILL_W, PILL_H), Image.LANCZOS)
     os.makedirs(os.path.dirname(path), exist_ok=True)

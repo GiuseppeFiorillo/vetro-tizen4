@@ -34,14 +34,26 @@ internal static class SamsungTvRemoteInputAgent
     private const ushort MiscellaneousScan = 4;
     private const int KeyMaximum = 0x2ff;
     private const uint EviocGrab = 0x40044590;
+    // EVIOCGKEY(96): the keys the remote holds down now, one bit per code up to KEY_MAX (0x2ff).
+    private const uint EviocGetKeys = 0x80604518;
+    private const int KeyBitmapBytes = (KeyMaximum + 1) / 8;
     private const uint UiSetEventBit = 0x40045564;
     private const uint UiSetKeyBit = 0x40045565;
     private const uint UiDeviceCreate = 0x00005501;
     private const uint UiDeviceDestroy = 0x00005502;
     private const uint UiSetPhysical32 = 0x4004556c;
     private const uint UiSetPhysical64 = 0x4008556c;
+    // UI_GET_SYSNAME(64): the "inputN" name of the device uinput created.
+    private const uint UiGetSysName = 0x8040552c;
     // Marks Vetro's own forwarding device; must match FORWARDED_PHYS in app/service/physical-input.js.
     private const string ForwardedPhys = "vetro-forwarded-remote";
+    // Picture Off (screen off, sound on). deviced keeps its display state in memory/pm/state: 1 with the screen on, 3 while
+    // it is off (read on a Q80A, fw 2310.0; the key is in deviced on Tizen 6.0, 6.5 and 9).
+    private const string DisplayStateKey = "memory/pm/state";
+    private const int DisplayStateOff = 3;
+    private const string ScreenOnCommand = "--timeout=3 call org.tizen.system.deviced /Org/Tizen/System/DeviceD/Display "
+        + "org.tizen.system.deviced.display ChangeState s lcdon";
+    private const int DeviceBusy = 16;   // EBUSY
     private const int UinputUserDeviceSize = 1116;
     private const int UinputNameBytes = 80;
 
@@ -109,12 +121,161 @@ internal static class SamsungTvRemoteInputAgent
                 {
                     throw NativeError("UI_DEV_CREATE");
                 }
+                MarkAsRemoteControl();
             }
             catch
             {
                 Dispose();
                 throw;
             }
+        }
+
+        // The TV's keyrouter gives the Remocon subclass to a device by its name (a list of Samsung remotes) or
+        // when it has neither 'a' nor Esc. A forwarded device under a name outside that list is taken for a
+        // keyboard and the on-screen keyboard hides on the first key it gets (issue #143). Newer firmware can
+        // be told the subclass directly; older firmware has no such command, so a failure here is not an error.
+        private void MarkAsRemoteControl()
+        {
+            // The copy's sysfs name, from UI_GET_SYSNAME. Where that call fails (seen as no "remocon subtype" line at all on a Q70C,
+            // Tizen 9, 2026-11-20) the copy is found by its Phys instead. Which way it was found goes to the log as
+            // "remocon node: sysname / phys / none", read by the diagnostics with the outcome line below.
+            string inputName = null;
+            byte[] sysName = new byte[64];
+            if (ioctl_buffer(descriptor, UiGetSysName, sysName) >= 0)
+            {
+                inputName = Encoding.ASCII.GetString(sysName).TrimEnd('\0');
+                if (inputName.Length == 0 || inputName.IndexOf('/') >= 0)
+                {
+                    inputName = null;
+                }
+            }
+            // The outcome goes to the log as one fixed line ("remocon subtype: set / unsupported / refused / no tool / no node / failed"), read by
+            // the diagnostics: on Tizen 9 boards keys passed on through this copy seem not to reach Samsung's apps or Vetro's TV page
+            // (S95C, Q70C, 2026-11-19), and whether the copy became a Remocon there is the first thing to know.
+            Task.Run(() =>
+            {
+                bool asked = false, told = false;
+                string how = "none";
+                try
+                {
+                    for (int attempt = 0; attempt < 12; attempt++)
+                    {
+                        System.Threading.Thread.Sleep(250);
+                        string node = inputName == null ? null : EventNodeIn("/sys/devices/virtual/input/" + inputName);
+                        how = node != null ? "sysname" : "none";
+                        if (node == null)
+                        {
+                            node = FindForwardedNode();
+                            if (node != null) how = "phys";
+                        }
+                        if (node == null)
+                        {
+                            continue;
+                        }
+                        if (!told)
+                        {
+                            Console.Error.WriteLine("remocon node: " + how);
+                            told = true;
+                        }
+                        if (!File.Exists("/usr/bin/enlightenment_info"))
+                        {
+                            Console.Error.WriteLine("remocon subtype: no tool");
+                            return;
+                        }
+                        asked = true;
+                        using (System.Diagnostics.Process process = new System.Diagnostics.Process())
+                        {
+                            process.StartInfo.FileName = "/usr/bin/enlightenment_info";
+                            process.StartInfo.Arguments = "-input_subtype_set " + node + " Remocon";
+                            process.StartInfo.UseShellExecute = false;
+                            process.StartInfo.RedirectStandardOutput = true;
+                            process.StartInfo.RedirectStandardError = true;
+                            process.Start();
+                            string output = process.StandardOutput.ReadToEnd() + process.StandardError.ReadToEnd();
+                            process.WaitForExit(5000);
+                            if (output.Contains("Success"))
+                            {
+                                Console.Error.WriteLine("remocon subtype: set");
+                                return;
+                            }
+                            // Firmware without the command (Tizen 6.0 on the Q80A answers "unknown option"): asking again changes nothing.
+                            if (output.Contains("unknown option"))
+                            {
+                                Console.Error.WriteLine("remocon subtype: unsupported");
+                                return;
+                            }
+                        }
+                    }
+                    if (!asked) Console.Error.WriteLine("remocon node: none");
+                    Console.Error.WriteLine(asked ? "remocon subtype: refused" : "remocon subtype: no node");
+                }
+                catch (Exception)
+                {
+                    Console.Error.WriteLine("remocon subtype: failed");
+                }
+            });
+        }
+
+        // The event node inside one input device's sysfs folder, or null.
+        private static string EventNodeIn(string folder)
+        {
+            try
+            {
+                if (!Directory.Exists(folder))
+                {
+                    return null;
+                }
+                foreach (string entry in Directory.GetDirectories(folder, "event*"))
+                {
+                    return "/dev/input/" + Path.GetFileName(entry);
+                }
+            }
+            catch (Exception)
+            {
+            }
+            return null;
+        }
+
+        // This helper's copy found by its Phys among the virtual input devices (every uinput device is a real folder there; the
+        // /sys/class/input entries are links): the newest one (highest inputN) if an older copy lingers.
+        private static string FindForwardedNode()
+        {
+            string found = null;
+            int newest = -1;
+            try
+            {
+                foreach (string folder in Directory.GetDirectories("/sys/devices/virtual/input", "input*"))
+                {
+                    int number;
+                    if (!int.TryParse(Path.GetFileName(folder).Substring(5), out number) || number <= newest)
+                    {
+                        continue;
+                    }
+                    string phys;
+                    try
+                    {
+                        phys = File.ReadAllText(Path.Combine(folder, "phys")).Trim();
+                    }
+                    catch (Exception)
+                    {
+                        continue;
+                    }
+                    if (phys != ForwardedPhys)
+                    {
+                        continue;
+                    }
+                    string node = EventNodeIn(folder);
+                    if (node != null)
+                    {
+                        found = node;
+                        newest = number;
+                    }
+                }
+            }
+            catch (Exception)
+            {
+            }
+            return found;
         }
 
         public void Forward(byte[] inputEvent)
@@ -188,6 +349,20 @@ internal static class SamsungTvRemoteInputAgent
         }
     }
 
+    private static void WaitForNoKeyDown(int descriptor)
+    {
+        var keys = new byte[KeyBitmapBytes];
+        for (int attempt = 0; attempt < 20; attempt++)
+        {
+            Array.Clear(keys, 0, keys.Length);
+            if (ioctl_buffer(descriptor, EviocGetKeys, keys) < 0) return;   // the driver cannot say: grab as before
+            bool down = false;
+            for (int i = 0; i < keys.Length && !down; i++) down = keys[i] != 0;
+            if (!down) return;
+            System.Threading.Thread.Sleep(50);
+        }
+    }
+
     [DllImport(Libc, SetLastError = true)]
     private static extern int open(string path, int flags);
 
@@ -211,6 +386,9 @@ internal static class SamsungTvRemoteInputAgent
 
     [DllImport(Libc, SetLastError = true, EntryPoint = "ioctl")]
     private static extern int ioctl_no_argument(int descriptor, uint request);
+
+    [DllImport(Libc, SetLastError = true, EntryPoint = "ioctl")]
+    private static extern int ioctl_buffer(int descriptor, uint request, [Out] byte[] buffer);
 
     [DllImport(Libc, SetLastError = true, EntryPoint = "ioctl", CharSet = CharSet.Ansi)]
     private static extern int ioctl_string(int descriptor, uint request, string value);
@@ -331,7 +509,11 @@ internal static class SamsungTvRemoteInputAgent
                 true);
             using (NetworkStream stream = client.GetStream())
             {
+                // The service writes its hello at once; a helper whose service never speaks (or is gone) must not sit
+                // there for ever holding nothing, so the first read gives up after 10 s.
+                client.ReceiveTimeout = 10000;
                 string hello = ReadLine(stream);
+                client.ReceiveTimeout = 0;
                 string[] helloFields = hello.Split('\t');
                 if (helloFields.Length != 2 || helloFields[0] != ProtocolVersion)
                 {
@@ -354,7 +536,19 @@ internal static class SamsungTvRemoteInputAgent
                     if (filter)
                     {
                         forwarder = new UinputForwarder(device);
-                        if (ioctl_integer(inputDescriptor, EviocGrab, 1) != 0)
+                        // A key held down at the moment of the grab would never be released for the window system: its release
+                        // then comes from the copy, while the remote still counts it as down, and Tizen 9 drops a release whose
+                        // code is down on another device (a Play/Pause that then reads as held). Wait up to a second for no key down.
+                        WaitForNoKeyDown(inputDescriptor);
+                        // EBUSY: the helper of an earlier start may still be letting go of the remote (seen once on
+                        // an AU7000); a short wait is enough, the service ends stale helpers before a new start.
+                        int grab = ioctl_integer(inputDescriptor, EviocGrab, 1);
+                        for (int attempt = 0; grab != 0 && Marshal.GetLastWin32Error() == DeviceBusy && attempt < 5; attempt++)
+                        {
+                            System.Threading.Thread.Sleep(300);
+                            grab = ioctl_integer(inputDescriptor, EviocGrab, 1);
+                        }
+                        if (grab != 0)
                         {
                             throw NativeError("EVIOCGRAB " + device.Node);
                         }
@@ -423,6 +617,7 @@ internal static class SamsungTvRemoteInputAgent
         int valueOffset = codeOffset + 2;
         Dictionary<int, string> keyNames = ReadKeyNames();
         Dictionary<ushort, bool> pressedBlocked = new Dictionary<ushort, bool>();
+        HashSet<ushort> pressedWake = new HashSet<ushort>();
         long sequence = 0;
         int? scanCode = null;
         byte[] buffer = new byte[eventSize];
@@ -493,7 +688,25 @@ internal static class SamsungTvRemoteInputAgent
                     key = "";
                 }
                 bool block = false;
-                if (type == EventKey)
+                // With the screen off, Samsung turns it back on at the first key that is not a volume or power key and drops
+                // that key. A key re-emitted through uinput only moves deviced's state back to "lcdon" and leaves the panel
+                // dark (Q80A, 2026-11-19), so while this agent holds the remote it does the same itself: the key (down,
+                // repeats and up) goes nowhere, not even to a shortcut, and deviced is asked for "lcdon".
+                bool wake = false;
+                if (filter && type == EventKey)
+                {
+                    if (value == 1 && !KeepsScreenOff(code) && ScreenIsOff())
+                    {
+                        pressedWake.Add(code);
+                        TurnScreenOn();
+                    }
+                    wake = pressedWake.Contains(code);
+                    if (wake && value == 0)
+                    {
+                        pressedWake.Remove(code);
+                    }
+                }
+                if (type == EventKey && !wake)
                 {
                     bool first = blocked.Contains(code.ToString())
                         || (!string.IsNullOrEmpty(key) && blocked.Contains(key));
@@ -514,6 +727,7 @@ internal static class SamsungTvRemoteInputAgent
                 }
                 if (filter
                     && !block
+                    && !wake
                     && (type == EventKey || type == EventSynchronization))
                 {
                     forwarder.Forward(buffer);
@@ -540,7 +754,7 @@ internal static class SamsungTvRemoteInputAgent
                                     code,
                                     value,
                                     key,
-                                    block,
+                                    wake ? "wake" : block ? "blocked" : "native",
                                     scanCode))));
                     if (value == 0)
                     {
@@ -565,7 +779,7 @@ internal static class SamsungTvRemoteInputAgent
         ushort code,
         int value,
         string key,
-        bool blocked,
+        string decision,
         int? scanCode)
     {
         long seconds = IntPtr.Size == 8
@@ -592,7 +806,7 @@ internal static class SamsungTvRemoteInputAgent
             + ",\"type_name\":\"EV_KEY\""
             + ",\"key\":\"" + EscapeJson(key) + "\""
             + ",\"action\":\"" + ActionName(value) + "\""
-            + ",\"decision\":\"" + (blocked ? "blocked" : "native") + "\""
+            + ",\"decision\":\"" + decision + "\""
             + (scanCode.HasValue
                 ? ",\"scan_code\":" + scanCode.Value
                     + ",\"scan_code_hex\":\"0x"
@@ -610,6 +824,52 @@ internal static class SamsungTvRemoteInputAgent
                     + "\""
                 : "")
             + "}";
+    }
+
+    // Keys that leave the screen off in Samsung's Picture Off: volume and mute (66-68 on Samsung remotes, 113-115 on others)
+    // and the power and sleep keys of tizen_key_layout.txt.tv.
+    private static bool KeepsScreenOff(ushort code)
+    {
+        switch (code)
+        {
+            case 66: case 67: case 68: case 113: case 114: case 115:
+            case 112: case 116: case 142: case 352: case 353: case 374:
+            case 449: case 463: case 523: case 531:
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    private static bool ScreenIsOff()
+    {
+        int state;
+        return VconfGetInt(DisplayStateKey, out state) == 0 && state == DisplayStateOff;
+    }
+
+    private static void TurnScreenOn()
+    {
+        Task.Run(() =>
+        {
+            try
+            {
+                using (System.Diagnostics.Process process = new System.Diagnostics.Process())
+                {
+                    process.StartInfo.FileName = "/usr/bin/busctl";
+                    process.StartInfo.Arguments = ScreenOnCommand;
+                    process.StartInfo.UseShellExecute = false;
+                    process.StartInfo.RedirectStandardOutput = true;
+                    process.StartInfo.RedirectStandardError = true;
+                    process.Start();
+                    process.StandardOutput.ReadToEnd();
+                    process.StandardError.ReadToEnd();
+                    process.WaitForExit(5000);
+                }
+            }
+            catch (Exception)
+            {
+            }
+        });
     }
 
     private static int ReadCurrentSourceType()

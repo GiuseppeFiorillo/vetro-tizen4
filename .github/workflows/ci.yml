@@ -2,12 +2,13 @@ name: Source checks
 on:
   push:
   pull_request:
+  workflow_dispatch:
 permissions:
   contents: read
 jobs:
   check:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
@@ -15,20 +16,33 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - name: Linux test dependencies and TV shell behavior
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y sqlite3 openssl python3 xz-utils
+          # Disposable runner only: the TV uses Bash for /bin/sh.
+          sudo ln -sf /bin/bash /bin/sh
+      - name: Application and legacy adapter checks
+        run: |
+          # Kernel-identity fixtures validate root AUTH pids; use a disposable runner.
+          sudo "$(command -v node)" app/tests/run.cjs
+          sudo "$(command -v node)" --test chain/tests/*.test.cjs
       - name: Root boot-hook and supervisor tests
         run: ./kant-m2-root/check.sh
-      - name: Tizen 4 chain tests
-        run: node --test chain/tests/*.test.cjs
-      - name: Application tests
-        run: node app/tests/run.cjs
       - name: Integration fixtures
         run: node rooting/tests/run.cjs
+      - name: Release hygiene and architecture
+        run: python3 .github/scripts/audit_release.py
+      - name: Diagnostic parser tests
+        run: python3 .github/scripts/test_parse_log.py
+      - name: Actual Node 4.4.3 compatibility
+        run: |
+          curl --fail --location --output "$RUNNER_TEMP/node4.tar.xz" https://nodejs.org/dist/v4.4.3/node-v4.4.3-linux-x64.tar.xz
+          echo "7d8919fa7c6fa927c0fe295fcb16c7025c974b717350e97ddbd7a46d3b60fbef  $RUNNER_TEMP/node4.tar.xz" | sha256sum -c -
+          tar -xJf "$RUNNER_TEMP/node4.tar.xz" -C "$RUNNER_TEMP"
+          "$RUNNER_TEMP/node-v4.4.3-linux-x64/bin/node" tools/check-node4.js
       - uses: actions/setup-dotnet@d4c94342e560b34958eacfc5d055d21461ed1c5d # v5.0.0
         with:
           dotnet-version: 10.0.x
-      - name: Native launcher checks
-        run: dotnet run -c Release --project dock/tests
-      - name: Diagnostic parser tests
-        run: python3 .github/scripts/test_parse_log.py
-      - name: Release hygiene and architecture
-        run: python3 .github/scripts/audit_release.py
+      - name: Native launcher logic
+        run: dotnet run --project dock/tests/Launcher.Tests.csproj

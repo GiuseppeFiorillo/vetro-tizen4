@@ -1,0 +1,28 @@
+'use strict';
+const assert=require('assert').strict,fs=require('fs'),path=require('path');
+const {measure,assertFits,LIMIT}=require('../update-size.cjs');
+process.env.VETRO_SOURCE_REVISION='0'.repeat(40);
+const files=require('../../chain/build.cjs').collectChainFiles().map(f=>({name:decodeURIComponent(f.uri),data:Buffer.from(f.data)}));
+const info=require('../../app/service/updater.js').parseBuildInfo(files.find(f=>f.name==='service/build-info.js').data);
+const report=measure(files,info);
+assert.equal(LIMIT,65536);
+assert.match(fs.readFileSync(path.join(__dirname,'../../chain/daemon/root-daemon.js'),'utf8'),/command\.length > 65536/);
+assert.deepEqual(report.map(r=>r.build),['0.5.0-tizen4'],'measure the fork release on this trust channel');
+assert.equal(info.shell,1,'0.7.0 does not need an artificial reinstall boundary');
+assert(report.every(r=>r.installedShell===1&&!r.requiresReinstall));
+assert.doesNotThrow(()=>assertFits(report),'the real Tizen 4 release baseline fits');
+const baseline=require('./fixtures/update-from-050-tizen4/installed.json').variants['0.5.0-tizen4'].files;
+// These are committed Git-blob hashes, not CRLF-converted Windows checkout files.
+assert.equal(baseline['native/dock/tvlauncher-dotnet.runtimeconfig.json'],'984c4b6f15952841c69db690775be870a04328b977a1bc1113bb1f35ccaf8264');
+assert.equal(baseline['native/dock/tvlauncher-dotnet-2.0.runtimeconfig.json'],'3f2714fccaffb7463c14b82ae23a7e2263c027acb8de4c674cea5644e62d3a3f');
+assert.equal(baseline['native/dock/res/inputs.tsv'],'4c6006b3aa6b80018e2524c0ef0b4b8d214e5faa45559727b23b956cbd3955ec');
+const extra=Array.from({length:16},(_,i)=>({name:'service/size-fixture-'+i+'.js',data:Buffer.from('/* synthetic size fixture */')}));
+const inPlace=measure(files.concat(extra),info);
+assert(inPlace.every(r=>!r.requiresReinstall&&r.bytes>LIMIT));
+assert.throws(()=>assertFits(inPlace),/in-place update.*limit/i,'a genuinely oversized in-place update is refused');
+const reinstall=measure(files.concat(extra),{...info,shell:2});
+assert(reinstall.every(r=>r.requiresReinstall&&r.bytes>LIMIT));
+assert.doesNotThrow(()=>assertFits(reinstall),'a genuinely reinstall-required transition does not need an in-place script');
+assert.doesNotThrow(()=>assertFits([{build:'same-shell',bytes:LIMIT,requiresReinstall:false}]),'the daemon accepts exactly 65536 characters');
+assert.throws(()=>assertFits([...reinstall,{build:'future-shell-2',bytes:LIMIT+1,requiresReinstall:false}]),/future-shell-2/,'a higher target revision is not a blanket size-check exemption');
+console.log('PASS Tizen 4 migration sizing: '+report.map(r=>r.build+' '+r.bytes+' bytes; margin '+r.margin+'; in-place update fits').join('; '));

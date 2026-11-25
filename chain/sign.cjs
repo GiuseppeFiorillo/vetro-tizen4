@@ -1,10 +1,10 @@
 'use strict';
 
-// Signs the Kant-M2 chain package with the existing Partner profile.
+// Signs the Kant-M2 chain package with owner-supplied certificates.
 // Input:  chain/build.cjs file list (app sources + chain adapter + daemon)
 // Output: chain/dist/vetro-chain-signed.wgt
 //
-// The unsigned source file is never touched (same shape as rooting/build.cjs).
+// The unsigned source file is never touched .
 // Passwords and certificate paths come from the environment so they are not
 // stored in this repository:
 //   AUTHOR_P12, DIST_P12, AUTHOR_PW, DIST_PW
@@ -14,7 +14,7 @@ const fs = require('fs');
 const path = require('path');
 
 const signingRequire = require('module').createRequire(
-    path.join(__dirname, '..', 'rooting', 'on-boot-probe', 'package.json'));
+    path.join(__dirname, 'signing', 'package.json'));
 
 const DIST = path.join(__dirname, 'dist');
 const OUT = process.env.OUT ? path.resolve(process.env.OUT) : path.join(DIST, 'vetro-chain-signed.wgt');

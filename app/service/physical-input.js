@@ -13,9 +13,19 @@ var NOT_REMOTE_NAME_RE = /keyboard|mouse|panel/i;
 // Marks Vetro's own forwarding device; must match ForwardedPhys in rooting/payload/SamsungTvRemoteInputAgent.cs.
 var FORWARDED_PHYS = 'vetro-forwarded-remote';
 var DEVICE_PHYS_RE = /^P: Phys=(.*)$/m;
+var DEVICE_EV_RE = /^B: EV=([0-9a-f]+)$/mi;
+var DEVICE_KEY_RE = /^B: KEY=(.*)$/m;
+var NON_ZERO_HEX_RE = /[1-9a-f]/i;
 var KEY_CODE_RE = /^\d{1,3}$/;
 var MAC_HEX_RE = /^[a-f0-9]{64}$/;
 function quote(s) { return "'" + String(s).replace(QUOTE_RE, "'\\''") + "'"; }
+function blockHasKeys(block) {
+    var key = DEVICE_KEY_RE.exec(block);
+    if (key) return NON_ZERO_HEX_RE.test(key[1]);
+    var ev = DEVICE_EV_RE.exec(block);
+    if (ev) return (parseInt(ev[1].slice(-8), 16) & 2) !== 0;
+    return true;
+}
 function devices(text) {
     return String(text).split(BLANK_LINE_RE).map(function (block) {
         var n = DEVICE_NAME_RE.exec(block), h = DEVICE_HANDLERS_RE.exec(block);
@@ -24,17 +34,26 @@ function devices(text) {
         if (phys && phys[1] === FORWARDED_PHYS) {
             return null;
         }
-        return n && node ? {name:n[1], node:'/dev/input/' + node[0]} : null;
+        return n && node ? {
+            name: n[1],
+            node: '/dev/input/' + node[0],
+            selectable: REMOTE_NAME_RE.test(n[1]) && !NOT_REMOTE_NAME_RE.test(n[1]) && blockHasKeys(block)
+        } : null;
     }).filter(Boolean).map(function (d, i, all) {
-        d.unique = all.filter(function (x) {return x.name === d.name;}).length === 1;
-        d.selectable = REMOTE_NAME_RE.test(d.name) && !NOT_REMOTE_NAME_RE.test(d.name);
+        d.unique = all.filter(function (x) {return (d.selectable ? x.selectable : true) && x.name === d.name;}).length === 1;
         return d;
     });
 }
-function Bridge(execute, onEvent) {
+// hooks (optional): onConnect(status) once a helper is connected and holds the remote (the forwarding node now exists), and
+// onStop(lost) whenever the bridge stops for any reason (asked, the helper disconnected, a bad frame), so a key that was held
+// down at that moment never keeps acting (the volume repeat waits for a release that will not come). lost is null when the stop
+// was asked for, else {reason, connected}: the error that ended it and whether a helper was holding the remote at that moment.
+function Bridge(execute, onEvent, hooks) {
     this.execute = execute; this.onEvent = onEvent; this.current = {mode:'off',connected:false};
     this.events = []; this.server = null; this.socket = null; this.generation = 0; this.lastError=null; this.cancel=null;
+    this.hooks = hooks || {};
 }
+function callHook(fn, arg){if(typeof fn==='function'){try{fn(arg);}catch(e){}}}
 Bridge.prototype.inventory = function () {
     return this.execute('cat /proc/bus/input/devices',10000).then(function(r){
         if (r.exit_code || r.timed_out) throw new Error('input inventory unavailable');
@@ -42,23 +61,25 @@ Bridge.prototype.inventory = function () {
     });
 };
 Bridge.prototype.status = function () {return {policy:this.current,events:this.events.slice(-30),error:this.lastError};};
-Bridge.prototype.stop = function () {
+Bridge.prototype.stop = function (reason) {
     ++this.generation;
-    var cancel=this.cancel, socket=this.socket, server=this.server;
+    var cancel=this.cancel, socket=this.socket, server=this.server, connected=!!this.current.connected;
     this.cancel=null; this.socket=null; this.server=null;
     this.current = {mode:'off',connected:false};
     if(cancel)cancel();
     if(socket)socket.destroy();
     if(server)server.close();
+    callHook(this.hooks.onStop,reason?{reason:reason,connected:connected}:null);
 };
-Bridge.prototype.start = function (device, mode, tokens) {
+// list (optional): the device list the caller has just read (restoreInput, Vetro UI), so it is not read a second time.
+Bridge.prototype.start = function (device, mode, tokens, list) {
     var self=this;
     if (mode==='off') {self.stop(); return Promise.resolve(self.status());}
     if (mode!=='observe' && mode!=='filter') return Promise.reject(new Error('invalid input mode'));
     if (!Array.isArray(tokens) || tokens.some(function(t){return !KEY_CODE_RE.test(t) || +t>767;})) return Promise.reject(new Error('invalid input codes'));
     if (mode==='filter' && !tokens.length) return Promise.reject(new Error('save a physical rule before enabling interception'));
     var requestGeneration=self.generation;
-    return self.inventory().then(function(list){
+    return (Array.isArray(list) ? Promise.resolve(list) : self.inventory()).then(function(list){
         if(requestGeneration!==self.generation)throw new Error('input request cancelled');
         var selected=list.find(function(d){return (d.node===device || d.unique && d.name===device) && d.selectable;});
         if (!selected) throw new Error('select a unique physical remote device');
@@ -67,7 +88,7 @@ Bridge.prototype.start = function (device, mode, tokens) {
         return new Promise(function(resolve,reject){
             var settled=false, timer, server, connection=null;
             function active(){return generation===self.generation && self.server===server;}
-            function fail(e){if(generation!==self.generation)return; self.lastError=e.message;if(!settled){settled=true;clearTimeout(timer);reject(e);}self.stop();}
+            function fail(e){if(generation!==self.generation)return; self.lastError=e.message;if(!settled){settled=true;clearTimeout(timer);reject(e);}self.stop(e.message);}
             self.cancel=function(){if(!settled){settled=true;clearTimeout(timer);reject(new Error('input request cancelled'));}};
             timer=setTimeout(function(){fail(new Error('native input helper did not connect'));},12000);
             server=net.createServer(function(socket){
@@ -88,6 +109,7 @@ Bridge.prototype.start = function (device, mode, tokens) {
                         if(!authenticated){
                             if(fields.length!==9||fields[0]!=='AUTH'||fields[2]!=='0'||fields[3]!=='0'||Buffer.from(fields[4],'base64').toString()!==selected.name||Buffer.from(fields[5],'base64').toString()!==selected.node||fields[8]!==mode){fail(new Error('unexpected input helper identity'));return;}
                             authenticated=true;self.current.connected=true;clearTimeout(timer);settled=true;resolve(self.status());
+                            callHook(self.hooks.onConnect,self.status());
                         }else{
                             try{
                                 if(fields.length!==3||fields[0]!=='EVENT'||+fields[1]!==seq+1)throw new Error('invalid input sequence');
@@ -109,7 +131,14 @@ Bridge.prototype.start = function (device, mode, tokens) {
                 var token='/tmp/vetro-input-'+crypto.randomBytes(12).toString('hex')+'.token';
                 var helper=path.join(__dirname,'..','payload','SamsungTvRemoteInputAgent.dll');
                 var args=['127.0.0.1',String(address.port),token,selected.name+'@'+selected.node,'evdev','TV',mode,mode==='filter'?tokens.join(','):''];
-                var command='umask 077; printf %s '+quote(secret.toString('base64'))+' > '+quote(token)+'; nohup /usr/bin/dotnet '+quote(helper)+' '+args.map(quote).join(' ')+' </dev/null >/tmp/vetro-input.log 2>&1 &';
+                // A filter helper still running from an earlier start (another service run, a bridge that was never told to stop) keeps the
+                // remote grabbed: every new helper then fails EVIOCGRAB with EBUSY and the interception never connects (S95B on 1720.7,
+                // static analysis 2026-11-19). Before a filter start any other filter helper is ended; observers (listen) are left alone.
+                // The pattern does not rely on the argument separators: the Q80A's tr leaves the NULs and the shell drops them.
+                var stale=mode==='filter'?'for d in /proc/[0-9]*; do [ "$(head -c 15 $d/cmdline 2>/dev/null)" = /usr/bin/dotnet ] || continue; case "$(tr \'\\0\' \' \' < $d/cmdline 2>/dev/null)" in *SamsungTvRemoteInputAgent.dll*filter*) kill -9 "${d#/proc/}" 2>/dev/null;; esac; done; ':'';
+                // The last helper's words are kept one start longer (vetro-input.prev.log): a helper that ended on its own (the remote went
+                // away, an exception) is followed within seconds by a new start, whose log would otherwise replace them.
+                var command=stale+'umask 077; mv -f /tmp/vetro-input.log /tmp/vetro-input.prev.log 2>/dev/null; printf %s '+quote(secret.toString('base64'))+' > '+quote(token)+'; nohup /usr/bin/dotnet '+quote(helper)+' '+args.map(quote).join(' ')+' </dev/null >/tmp/vetro-input.log 2>&1 &';
                 self.execute(command,5000,active).then(function(r){if(r.exit_code||r.timed_out)fail(new Error('input helper launch failed'));}).catch(fail);
             });
         });

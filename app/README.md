@@ -47,8 +47,9 @@ Use a current Node release for building. To check the compatibility fixture on
 the actual legacy runtime, set `NODE4_BINARY` to a local Node 4.4.3 executable
 when running `npm test`; this runtime is for isolated local tests only.
 The public package has been exercised locally with Node 4.4.3, with synthetic
-public inventory data. It has not been installed on the Q6. Signing with an
-owner-supplied Samsung profile and separate installation approval are required.
+public inventory data. This inherited app-only profile is distinct from the hardware-tested standalone
+runtime; see the root validation guide. Optional WGT signing uses owner-supplied
+Samsung certificates.
 
 This compatibility profile and its regression fixtures were implemented with
 Codex assistance. Local runtime and fixture checks do not certify TV rendering,

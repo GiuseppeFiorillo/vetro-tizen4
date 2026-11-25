@@ -22,7 +22,8 @@ const probeStore=require('../service/probe');
  const secret='PERSONAL_SENTINEL@example.com';
  const poison={username:secret,password:secret,serial:secret,hostname:secret,bootId:secret,token:secret,error:null,unknown:secret};
  const readers={
-  platform:()=>({...poison,mode:'tv-integration',running:true,agent:{connected:true,uid:0,pid:123,identity:secret},self:{node:'v12.4.0',pid:123}}),
+  platform:()=>({...poison,mode:'tv-integration',running:true,agent:{connected:true,uid:0,pid:123,identity:secret},self:{node:'v12.4.0',pid:123},timing:{firstConnect:{ms:65400}},
+   attempts:[{phase:'launch',t:Date.now()-120000,connect:'fail:sdbClosed',err:secret},{phase:'agent-connected',output:secret},{phase:'launch',t:Date.now()-60000,connect:'fail:'+secret},{phase:'launch',t:Date.now()-30000,connect:'fail:preflight-failed'},{phase:'launch',t:Date.now(),connect:'ok'},{phase:'launch',t:Date.now()}]}),
   device:()=>({...poison,model:'QE50Q80A',firmware:'T-NKM2DEUC-2301.1',realModel:'192.0.2.10'}),
   inventory:()=>({...poison,apps:[{...poison,name:secret,author:secret,appId:'com.samsung.tv.acr',packageId:'com.samsung.tv.acr-service',version:'1.0',disabled:true,onboot:false,dependencies:[{packageId:'org.tizen.test',version:'1.0',token:secret}]}]}),
   settings:()=>({items:[{id:'pictureMode',value:65538,writable:false,error:secret},{id:'backlight',value:secret},{id:'password',value:secret}]}),
@@ -36,8 +37,14 @@ const probeStore=require('../service/probe');
   privacy:()=>({...poison,adId:{psid:secret},agreements:[secret],doNotTrack:1}),
   serviceApis:()=>({tizenObject:false,application:false,secret}),
   hbbtv:()=>{throw Error(secret);},
-  launcher:()=>({...poison,installed:true,enabled:true,running:true,samsungHome:false,busy:false,fixTizenTube:true,noMotion:false,autorunSwitchedOff:true,customHomeDisabled:false,mode:'vetro',customApp:'com.example.'+secret,failures:2,hasError:true,log:secret,
+  launcher:()=>({...poison,installed:true,enabled:true,running:true,samsungHome:false,busy:false,fixTizenTube:true,noMotion:false,autorunSwitchedOff:true,customHomeDisabled:false,mode:'vetro',customApp:'com.example.'+secret,volumePill:true,numberPad:false,cards:['tasks',secret],appStore:secret,failures:2,hasError:true,log:secret,
+   keyLog:['10:00:00.001 command VolDown','10:00:00.002 volume: the level cannot be read','10:00:01.000 command Pad','10:00:01.100 pad: elm_win_add failed','10:00:02.000 pad: sending 12-1 rc=0',
+     '10:00:03.000 outputs: speaker selection 1, 1 rows, read in 4 ms','10:00:04.000 outputs: connect AA:BB:CC:DD:EE:FF ok','10:00:05.000 pad: /home/'+secret,'10:00:06.000 fifo: System.IO.IOException: broken','10:00:07.000 command '+secret].join('\n'),
    apps:{count:11,skipped:[{item:secret,reason:secret}]},entries:[{slug:'tizentube',label:secret,appId:'xvvl3S1TT1.TizenTubeStandalone'},{slug:'x',label:secret,appId:secret}],inputs:[{label:secret}]}),
+  tuner:()=>({...poison,installed:true,enabled:true,running:false,supported:false,busy:false,samsungTunerFound:true,failures:1,hasError:true,log:secret,error:null,
+   prerequisites:{dotnet:false,client:true,tvs:true,viewer:true,extra:secret},clientVersions:['1.1.12','../'+secret,'latest','2.0'],clientFiles:['1.3.15/Tizen.TV.Broadcast.TVService.dll','1.3.15/.ready','../'+secret+'.dll','a b.dll'],clientElsewhere:['/usr/apps/org.tizen.tv-viewer/bin/Tizen.TV.Broadcast.TVService.dll','/home/owner/'+secret+'.dll','/usr/apps/../etc/x.dll']}),
+  input:()=>({...poison,enabled:true,auto:true,connected:false,savedPresent:false,sameNameCount:3,selectableCount:2,volumeKeys:true,padKey:true,problem:false,device:secret,node:'/dev/input/'+secret,failure:'native input helper did not connect',helperLog:'IOException: EVIOCGRAB /dev/input/event6 failed with errno 16\nArgumentException: '+secret+' @ x',
+   recentKeys:[{code:390,key:'KEY_AUX',scan_code_hex:'0x000C00E9',decision:'native',device:secret,node:secret,tv_fullscreen_appid:secret},{code:140,key:secret,scan_code_hex:secret,decision:'blocked'},{code:28,key:'KEY_ENTER',decision:'wake'},{code:9999,key:'KEY_X'},{code:4,key:'KEY_3',scan_code_hex:'0x00070020',decision:'native'},{code:30,key:'KEY_A',decision:'native'}],volumeRoute:{route:'agent',errno:'EACCES',ageSeconds:0,path:secret}}),
   factoryTest:()=>({...poison,key:secret,present:true,value:1,type:'Int32',active:true}),
   quickWins:()=>({wins:{firmware:{status:'on',value:0},multiscreen:{status:'off',running:true},ambient:{status:'partial',running:true,chosen:true,extra:secret}}})
  };
@@ -53,8 +60,14 @@ const probeStore=require('../service/probe');
  assert.equal(d.sections.startup.data.services[0].bootState,'disabled');
  assert.equal(d.sections.serviceApis.data.tizenObject,false);
  assert.equal(d.sections.hbbtv.status,'unavailable');
- assert.deepEqual(d.sections.launcher.data,{entryCount:2,inputCount:1,appCount:11,skippedCount:1,failures:2,hasError:true,tizenTubeTile:true,installed:true,enabled:true,running:true,samsungHome:false,busy:false,fixTizenTube:true,noMotion:false,autorunSwitchedOff:true,customHomeDisabled:false,mode:'vetro',customApp:true},'launcher: states and counts only (the custom app id is reduced to a yes/no)');
- assert.deepEqual(d.sections.quickWins.data,{firmware:{status:'on',running:null,chosen:null},multiscreen:{status:'off',running:true,chosen:null},ambient:{status:'partial',running:true,chosen:true}});
+ assert.deepEqual(d.sections.launcher.data,{entryCount:2,inputCount:1,appCount:11,skippedCount:1,failures:2,hasError:true,tizenTubeTile:true,installed:true,enabled:true,running:true,samsungHome:false,busy:false,fixTizenTube:true,noMotion:false,autorunSwitchedOff:true,customHomeDisabled:false,mode:'vetro',customApp:true,volumeBar:true,numberPad:false,cardCount:2,homePictureClears:null,homePictureAgoSeconds:null,appStore:null,events:['command VolDown','volume: the level cannot be read','command Pad','pad: elm_win_add failed','pad: sending 12-1 rc=0','outputs: speaker selection 1, 1 rows, read in 4 ms','fifo: System.IO.IOException: broken'],bootTimeline:null,openings:[]},'launcher: states and counts only, and the key lines of its log in fixed shapes (no device addresses, no paths) (the custom app id is reduced to a yes/no)');
+ assert.deepEqual(d.sections.tuner.data,{failures:1,hasError:true,installed:true,enabled:true,running:false,supported:false,busy:false,samsungTunerFound:true,prerequisites:{dotnet:false,client:true,tvs:true,viewer:true},clientVersions:['1.1.12','2.0'],clientFiles:['1.3.15/Tizen.TV.Broadcast.TVService.dll','1.3.15/.ready'],clientElsewhere:['/usr/apps/org.tizen.tv-viewer/bin/Tizen.TV.Broadcast.TVService.dll'],events:[],threads:[]},'tuner: flags, which prerequisite is missing and the client version folders (numbers only); no log, no error text');
+ assert.deepEqual(d.sections.input.data,{enabled:true,auto:true,connected:false,savedPresent:false,savedNodePresent:null,volumeKeys:true,padKey:true,problem:false,sameNameCount:3,keyedSameNameCount:null,selectableCount:2,failure:'helper-did-not-connect',helperError:'IOException: EVIOCGRAB <node> failed with errno 16',prevHelperError:null,remoconSubtype:null,remoconNode:null,loop:null,history:[],recentKeys:[{code:390,key:'KEY_AUX',scan:'0x000C00E9',held:false,woke:false},{code:140,key:null,scan:null,held:true,woke:false},{code:28,key:'KEY_ENTER',scan:null,held:false,woke:true},{code:null,key:null,scan:null,typed:true,held:false,woke:false},{code:null,key:null,scan:null,typed:true,held:false,woke:false}],volumeRoute:{route:'agent',errno:'EACCES',ageSeconds:0}},'input: yes/no and counts, never the remote name or node');
+ const ra=d.sections.platform.data.rootAttempts;
+ assert.equal(ra.count,5);assert.equal(ra.firstConnectSeconds,65);
+ assert.deepEqual(ra.last.map(a=>a.result),['sdbClosed','other','preflight-failed','ok','pending'],'root attempts: fixed codes only');
+ assert(ra.last[0].agoSeconds>=119&&ra.last[0].agoSeconds<=121);
+ assert.deepEqual(d.sections.quickWins.data,{firmware:{status:'on',running:null,chosen:null},multiscreen:{status:'off',running:true,chosen:null},ambient:{status:'partial',running:true,chosen:true},telemetry:{status:null,running:null,chosen:null},airplay:{status:null,running:null,chosen:null},keyguides:{status:null,running:null,chosen:null}});
  assert.deepEqual(d.sections.factoryTest.data,{present:true,value:1,type:'Int32',active:true},'#135: the Aging key, read only');
  assert.equal(d.sections.probe.data.supportedKeys.keys[0],'VolumeUp');
  assert.equal(d.sections.network.data.services[0].customDnsConfigured,true);
@@ -76,3 +89,18 @@ const probeStore=require('../service/probe');
  context.fetch=async()=>({ok:false});fn.call(button);await new Promise(r=>setImmediate(r));assert.equal(button.disabled,false);assert(status.textContent.includes('Download failed'));assert.equal(clicks,3,'a failed download saves no file');
  console.log('PASS diagnostic export: sensitive-field exclusion, technical fields, partial failure, timeout and browser JSON download');
 })().catch(e=>{console.error(e);process.exit(1);});
+
+// The root commands' parts split on "---" lines, empty parts kept in place (the helper's remocon lines came back null when the
+// first two parts were empty).
+{
+    const report = require('../service/diagnostic-report.js');
+    const p = report.parts('---\n---\nremocon subtype: unsupported\n---\nremocon node: sysname\n');
+    assert.deepStrictEqual(p.slice(0, 4), ['', '', 'remocon subtype: unsupported', 'remocon node: sysname']);
+    assert.deepStrictEqual(report.parts('a\nb\n---\nc'), ['a\nb', 'c']);
+    assert.deepStrictEqual(report.parts(''), ['']);
+    assert.deepStrictEqual(report.parts(null), ['']);
+    const tuner = report.projectors.tuner({installed: true, tunerLog: '+10ms live: the TV is on 4965 (TV Plus)\n+11ms live: the TV is on a TV Plus channel, tuning 1 and showing the tuner\n+12ms input: source type -1 -> 0 (TV)\n+13ms live: Samsung\'s x\n'});
+    const lines = (tuner.events || []).map(e => e.line);
+    assert.ok(lines.includes('live: the TV is on 4965 (TV Plus)') && lines.includes('input: source type -1 -> 0 (TV)'), 'live and source lines kept');
+    assert.ok(!lines.some(l => l.indexOf("'") >= 0), 'a line with a quote is dropped');
+}
