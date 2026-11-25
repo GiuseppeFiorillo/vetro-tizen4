@@ -22,6 +22,8 @@ jobs:
           sudo apt-get install -y sqlite3 openssl python3 xz-utils
           # Disposable runner only: the TV uses Bash for /bin/sh.
           sudo ln -sf /bin/bash /bin/sh
+      - name: Publication and native-input audit
+        run: npm run audit
       - name: Application and legacy adapter checks
         run: |
           # Kernel-identity fixtures validate root AUTH pids; use a disposable runner.
@@ -45,4 +47,4 @@ jobs:
         with:
           dotnet-version: 10.0.x
       - name: Native launcher logic
-        run: dotnet run --project dock/tests/Launcher.Tests.csproj
+        run: npm run test:native

@@ -1,0 +1,19 @@
+{
+  "name": "vetro-tizen4",
+  "version": "0.7.0",
+  "private": true,
+  "description": "Vetro 0.7.0 Tizen 4 application and standalone runtime for the KANT-M2 family; tested on UE65NU7100 / T-KTM2LDEUC-1400.2.",
+  "scripts": {
+    "build": "node tools/build-current.cjs",
+    "build:app": "node app/build.cjs",
+    "build:chain": "node chain/build.cjs",
+    "test": "node app/tests/run.cjs",
+    "test:chain": "node --test chain/tests/*.test.cjs",
+    "test:native": "dotnet run --project dock/tests/Launcher.Tests.csproj",
+    "audit": "node tools/audit-source.cjs"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "MIT"
+}
