@@ -59,6 +59,8 @@ Edit, `pack` again, install again: it updates in place and comes back switched o
 | `permissions` | no | `[]` or `["exec"]` (see below) |
 | `main` | no | entry file, default `index.js` |
 | `ui` | no | `{ "label": "…" }` (1–24 chars): adds a tab inside Vetro Shards while the plugin runs |
+| `intercepts` | no | `[{ "appId": "…", "label": "…" }]` (1–3 apps): the launcher tile of each app starts your `launch(appId)` while the plugin is on. See [Taking over an app's tile](#taking-over-an-apps-launcher-tile-intercepts) |
+| `controlCenter` | no | `{ "label": "…" }` (1–24 chars): one card in the launcher's Control center, from your `card()` and `cardSelect(rowId)`, while the plugin is on. See [Adding a card to the Control center](#adding-a-card-to-the-control-center-controlcenter) |
 
 ### index.js
 
@@ -72,6 +74,9 @@ module.exports = function (ctx) {
         status: function () { return {}; },  // shown to the dashboard as `detail`
         route: function (req, res, sub) {    // /plugins/<id>/api/<sub>; return false if not yours
             return false;
+        },
+        launch: function (appId) {           // only with `intercepts`: start that app your way, return a Promise
+            return Promise.resolve();
         }
     };
 };
@@ -89,6 +94,89 @@ With `ui`, `GET /plugins/<id>/api/ui` must return an HTML page. It is shown in a
 (`allow-scripts`, no same-origin): use **relative URLs** (`fetch("count")`), no cookies, no storage. The page URL holds a session token
 that opens your routes and expires after 8 hours or when the plugin is switched off: build every request from a relative URL and the token follows.
 JSON `POST` works: the host answers the CORS preflight. Dark/light: add `<meta name="color-scheme" content="light dark">`.
+
+### Taking over an app's launcher tile (`intercepts`)
+
+Some apps need to be started in a particular way: with a proxy, a flag, another user, a patch applied first. A Shard can say
+that it does that for an app, and the launcher (Vetro UI → Launcher) will then start the Shard instead of the app when that
+app's tile is pressed. Example: the Ad-free YouTube Shard starts Samsung's YouTube with its proxy; a Twitch Shard could do the same for the Twitch app.
+
+```json
+{ "id": "youtube", "apiVersion": 1, "permissions": ["exec"],
+  "intercepts": [{ "appId": "com.samsung.tv.cobalt-yt", "label": "YouTube" }] }
+```
+
+- **`appId`** is the Tizen id of the app, as in `app_launcher -s <id>` (letters, digits, `.`, `_`, `-`). **`label`** is the name people read
+  (1–24 characters, plain text). Up to three apps; the same app twice is refused. It is checked everywhere the manifest is:
+  by `vetro-plugin.cjs pack` and `check`, by the installer and by the loader.
+- **The dashboard says it.** The Shard's card in Installed Shards and in the catalog shows **Intercepts the YouTube app**, with the app id and
+  what changes underneath, and the install question lists it. The catalog entry carries the same list, and an install is refused if the downloaded file
+  intercepts other apps than the entry says.
+- **It is not a permission.** `permissions` stays `[]` or `["exec"]`. The key is optional and older Vetro versions ignore it, so a Shard that has it still loads
+  there (its tile is simply not taken over).
+- **`launch(appId)`** is a method of the object your `index.js` returns. It returns a Promise: resolve when the app is starting, resolve `false` or reject
+  when you cannot. It is called with the id from your manifest, once per press, and may take a while the first time (up to 2 minutes). Vetro waits for it and does not start the app a second time.
+- **The fallback is Vetro's, not yours.** If your Shard is off or not running, has no `launch`, declines, throws, rejects or takes longer than 2 minutes,
+  Vetro starts the app the normal way (`app_launcher -s <appId>`), so a broken Shard never leaves a dead tile. The last result, and the reason for a fallback, appear in the launcher's status as `lastShardLaunch`.
+- **Only while it is on.** Switching the Shard off (or removing it) gives the tile back; the launcher list is rebuilt a moment after a Shard that intercepts apps starts or stops.
+  The list holds nothing but the fact that the tile is taken over: the launcher, which runs as root, never reads anything from a Shard.
+- **Two Shards on one app: neither wins.** The tile starts the app normally and both Shards show a **Conflict** label until one is switched off.
+- **What it cannot take:** Live TV, Settings, Source and the other system tiles, and apps that are not in the launcher's list. A Shard that does not run `exec` commands can still intercept; what its `launch` may do is the same as for any code that runs in Vetro (see the next sections).
+
+### Adding a card to the Control center (`controlCenter`)
+
+Down on the launcher's apps row opens the Control center: up to three cards side by side (Task manager, Audio output, Picture mode, Sleep timer).
+A Shard can add **one** card of its own, a short list of rows with a tick on the current one: lights and scenes of a smart home, the profile of a VPN,
+the source of a hi-fi. OK on a row calls your code; the card is read again a moment later. Example: a Home Assistant Shard.
+
+```json
+{ "id": "home-assistant", "apiVersion": 1, "permissions": ["exec"],
+  "controlCenter": { "label": "Home Assistant" } }
+```
+
+```js
+module.exports = function (ctx) {
+    return {
+        // What the card shows. Sync or a Promise. Read every time the Control center opens.
+        card: function () {
+            return { rows: [{ id: 'scene.evening', label: 'Evening', value: 'Scene' },
+                            { id: 'light.living', label: 'Living room', value: 'on', ticked: true }],
+                     note: '2 of 14 entities',   // optional: one line under the title
+                     choosable: true };          // optional, default true; false shows the rows but OK does nothing
+        },
+        // OK on a row. Sync or a Promise. Resolve { ok: false, note } to say it did not work.
+        cardSelect: function (rowId) {
+            return callHomeAssistant(rowId).then(function () {
+                return { ok: true };             // optional: rows: [...] if you already know the new state
+            });
+        }
+    };
+};
+```
+
+- **The manifest key** is `controlCenter` with a `label` (1–24 characters, plain text), checked by `vetro-plugin.cjs pack` and `check`, by the installer and by the loader.
+  One card per Shard. With the key, `index.js` must return **both** `card()` and `cardSelect()`: `check` refuses the folder otherwise, and a running Shard without them has no card.
+  It is **not a permission**, so `permissions` stays `[]` or `["exec"]`, and an older Vetro ignores the key and loads the Shard as before (it simply has no card).
+- **`card()`** returns `{ rows, note?, choosable? }`. A row is `{ id, label, value?, ticked? }`: `id` is your own name for it (1–40 characters of `A-Z a-z 0-9 . _ -`; it is
+  what `cardSelect` gets back), `label` is what people read, `value` a short state after it (`Living room · on`), `ticked: true` marks the current one.
+- **Vetro cleans what you return, you are not trusted with the screen.** At most **7 rows** (the rest is dropped; the card shows five at a time and scrolls), `label` up to **40** characters, `value` up to **24**, `note` up to **80** (longer is cut).
+  Control characters, tabs and line breaks become spaces; a row without a usable `id` or `label`, or with an `id` already used, is dropped. Nothing is an error towards the launcher: it gets
+  the cleaned rows, or "Not available". Your Shard never runs in the launcher: the launcher asks Vetro (`GET /plugins/launcher/api/card`, `POST …/card-select`, text lines, same sign-in rule as the other routes of the launcher),
+  and Vetro asks you.
+- **`cardSelect(rowId)`** is called with an `id` from your last rows. Resolve `{ ok: true }` (or nothing: it counts as done), `{ ok: false, note: 'Lamp offline' }` or `false`. The card shows **Switching…** on the row meanwhile.
+  If you return `rows`, they are the new state; otherwise Vetro calls `card()` again at once. One action at a time: a second press while the first is under way is refused.
+  OK on the row that is already ticked does nothing (as in Picture mode), so a card that is a single on/off switch should show two rows (On, Off), not one that toggles.
+- **Timeouts:** `card()` has **3 seconds** (like Picture mode), `cardSelect()` **10 seconds**. A throw, a rejection, a timeout or nonsense shows **Not available** on the card with the reason
+  (up to 80 characters); the launcher never waits for you, and the next opening asks again. **These errors do not count towards the 3 that switch a Shard off**: a Shard whose home server is
+  down keeps running, its card just says so. If a read is still under way when the Control center opens again, both share the one call.
+- **Only while it is on.** The card exists while the Shard is running. Switching it off or removing it makes the card disappear (the launcher is restarted a moment after, like for `intercepts`); the card the user chose stays saved
+  and comes back with the Shard. Nothing is on by default: **Vetro UI → Launcher → Control center** lists the card with its own switch, off until chosen. The three places of the Control center are shared with the four cards of Vetro.
+- **The dashboard says it.** The Shard's card in Installed Shards and in the catalog shows **Adds a card to the Control center ("Home Assistant")**, with the last error of the card when there is one; the catalog entry
+  carries the same key (`vetro-plugin.cjs index` writes it) and an install is refused when the downloaded file's `controlCenter` differs from the entry's. A saved card whose Shard is off is listed
+  in the Control center tab as **Paused**, with why.
+- **What the launcher shows:** the label as the card's title (and under the bar when it is the only card), rows as `label · value` with the tick on the current one, the last rows it read while the next read is under way,
+  the `note` under the title. It does not draw anything else of yours (no icons, no colours).
+- **Not the MQTT bridge.** Vetro's own Home Assistant connection (Dashboard) is something else; this is a card for a Shard that talks to anything.
 
 ### The `exec` permission
 
@@ -123,7 +211,7 @@ cannot push code as a Vetro update. Each entry carries a `signature` over its id
 
 For the list's maintainer: `node scripts/vetro-plugin.cjs keygen <folder>` makes the pair (paste the public key into
 `app/service/plugin-key.js`); `node scripts/vetro-plugin.cjs sign <index.json> <private.pem> [dist-folder]` adds the
-`signature` to every entry after checking each bundle against its hash. Run it before every publish.
+`signature` to every entry after checking each bundle against its hash. In the vetro-plugins repository the publish job does this on every push to `main`; run it by hand only for a list of your own.
 
 ## Publish on GitHub
 
@@ -198,6 +286,8 @@ HTTP (on the TV, port of the dashboard):
 | `POST /plugins/<id>/enable` · `disable` · `remove` | |
 | `POST /plugins/resume` | leave safe mode (takes effect after a restart of Vetro) |
 | `* /plugins/<id>/api/<sub>` | your `route()` |
+| `GET /plugins/launcher/api/card?plugin=<id>` · `POST /plugins/launcher/api/card-select?plugin=<id>&row=<row id>` | used by the launcher itself for a Shard's Control center card: tab-separated text lines, always `200` (`status ok` or `unavailable`, `note`, `choosable`, `row id label value ticked`) |
+| `POST /plugins/launcher/api/open?slug=<tile>` | used by the launcher itself when a tile is taken over by a Shard: answers `202` at once and starts the app in the background |
 
 Bundle: `{ "format": "vetro-plugin", "version": 1, "manifest": {…}, "files": { "index.js": "…" } }`.
 
@@ -207,11 +297,14 @@ Bundle: `{ "format": "vetro-plugin", "version": 1, "manifest": {…}, "files": {
   Its code is not even read until then: installing, listing, safe mode and booting with it off never run anything of it.
 - Calls into a plugin are guarded; 3 consecutive errors switch it off. Errors thrown later inside your
   own callbacks or promises are **not** caught: handle them yourself.
-- A boot that does not stay up for 60 s puts the next one in safe mode (plugins paused until resumed). In safe
+- Two boots in a row that do not stay up for 60 s put the next one in safe mode (plugins paused until resumed). One alone
+  does not: the TV turned off in the first minute after an update is not a plugin crashing Vetro. In safe
   mode the plugins are still listed, so you can switch off or remove the culprit before resuming.
 - A plugin whose `start()` throws gets `stop()` called so it can release what it took, and is marked Failed.
 - Not done yet: if an update installs but its `start()` fails, the previous version is not restored automatically (the plugin shows Failed; install the old bundle again).
 - A plugin cannot take a Vetro route; it only gets `/plugins/<id>/api/...`.
+- `launch()` of a Shard that intercepts an app is guarded: a throw, a rejection or no answer within 2 minutes falls back to the plain launch and is not counted as one of the 3 errors.
+- `card()` and `cardSelect()` of a Shard that has a Control center card are guarded the same way (3 s and 10 s): errors and timeouts are answered as "Not available" and are **not** counted as one of the 3 errors. What they return is cleaned (7 rows, 40/24/80 characters, no control characters).
 - This is fault isolation, **not** a security sandbox: a plugin runs inside Vetro's process. Only paired devices can install,
   switch on or remove plugins (`SIGN-IN.md`), and a plugin page gets a session limited to its own routes; but a plugin you
   switch on has the same power as Vetro's service. Installing one is a trust decision.
@@ -225,4 +318,4 @@ Bundle: `{ "format": "vetro-plugin", "version": 1, "manifest": {…}, "files": {
 | "The plugin list is not published yet" | the list repository does not exist (404) |
 | "Could not reach the plugin list" | the browser has no internet, or a blocker stops `raw.githubusercontent.com` |
 | "Failed" | it could not start, or 3 errors in a row; the message shows the last one. Switch it on again after fixing |
-| plugins "Suspended" | safe mode: Vetro did not stay up last time. Resume, then restart Vetro |
+| plugins "Suspended" | safe mode: Vetro did not stay up the last two times. Resume, then restart Vetro |

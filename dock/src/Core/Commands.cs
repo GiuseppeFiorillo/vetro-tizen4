@@ -4,10 +4,13 @@ using System.Text;
 
 namespace Launcher.Core
 {
-    internal enum Command { Show, Hide, Toggle }
+    internal enum Command { Show, Hide, Toggle, VolUp, VolDown, VolMute, Pad, Rescan, Reload }
 
     /// <summary>
-    /// Newline-delimited command stream read from the control FIFO ("show", "hide", "toggle").
+    /// Newline-delimited command stream read from the control FIFO ("show", "hide", "toggle", and the volume keys
+    /// "volup", "voldown", "volmute" and "pad" that the Vetro service forwards when it swallows the remote's volume and 123 keys, and
+    /// "rescan", which the service sends when its remote bridge has just made a new forwarding node, so it is watched at once, and "reload",
+    /// which it sends when it has written the app lists again after an app was installed or removed).
     /// Unknown words are dropped, a line without a terminator waits for more bytes, and a
     /// writer that never sends a newline cannot grow the buffer past <see cref="MaxLine"/>.
     /// </summary>
@@ -42,6 +45,12 @@ namespace Launcher.Core
                 case "show": into.Add(Command.Show); break;
                 case "hide": into.Add(Command.Hide); break;
                 case "toggle": into.Add(Command.Toggle); break;
+                case "volup": into.Add(Command.VolUp); break;
+                case "voldown": into.Add(Command.VolDown); break;
+                case "volmute": into.Add(Command.VolMute); break;
+                case "pad": into.Add(Command.Pad); break;
+                case "rescan": into.Add(Command.Rescan); break;
+                case "reload": into.Add(Command.Reload); break;
             }
         }
     }

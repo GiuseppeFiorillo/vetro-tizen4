@@ -8,7 +8,8 @@ set -e
 cd "$(dirname "$0")"
 DOTNET=${DOTNET:-dotnet}
 
-"$DOTNET" build -c Release Launcher.csproj
+# Deterministic, with the checkout path mapped away, so the shipped 3.1 build can be reproduced byte for byte.
+"$DOTNET" build -c Release -p:Deterministic=true -p:PathMap="$(cd .. && pwd)=/_" Launcher.csproj
 cp bin/Release/netcoreapp3.1/tvlauncher-dotnet.dll bin/Release/netcoreapp3.1/tvlauncher-dotnet.runtimeconfig.json ../app/native/dock/
 
 "$DOTNET" build -c Release -p:VetroLauncherTfm=netcoreapp2.0 Launcher.csproj

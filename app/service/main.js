@@ -19,11 +19,13 @@ var buildInfo = require('./build-info.js');
 var apps = require('./apps.js');
 var probe = require('./probe.js');
 var remap = require('./remap.js');
+var hbbtvLink = require('./dock-catalog.js').hbbtvLink;
 var settings = require('./settings.js');
 var TVSettings = require('./tv-settings.js').Store;
 var AppRegistry = require('./app-registry.js');
 var PhysicalInput = require('./physical-input.js').Bridge;
-var renderDashboard = require('./dashboard.js');
+// The dashboard page is the largest file of the service: it is loaded when a browser first asks for it, not at every start.
+function renderDashboard() { return require('./dashboard.js')(); }
 var SystemMonitor = require('./system-monitor.js').Monitor;
 // Regular expressions compiled once at module load, not on every call.
 var WHITESPACE_RE = /\s+/;
@@ -48,26 +50,72 @@ var SCOPE_QUERY_RE = /[?&]scope=([^&]*)/;
 var MONITOR_SCOPE_RE = /^(summary|full)$/;
 var monitor = new SystemMonitor(agentExecute);
 var ComponentActions = require('./component-actions.js');
+var quickUninstall = require('./quick-uninstall.js');
+var homeCleanup = require('./home-cleanup.js');
 var dnsFilter = new (require('./local-dns.js').Filter)(agentExecute);
 var homeOrder = new (require('./home-order.js').Order)(agentExecute);
 // Custom launcher mode needs a look at the chosen app in the registry, and a way to put Samsung's Home back when an
 // earlier build of the mode had disabled it (the mode itself never disables it any more: the boot of the TV waits for it).
 var dockModule = require('./dock.js');
-var dock = new dockModule.Dock({execute: agentExecute,
+// What tells one build of Vetro from another: the launcher and the tuner run in units of their own and outlive the service,
+// so each remembers which build started it.
+var nativeBuild = buildInfo.version + (buildInfo.sourceRevision ? '+' + buildInfo.sourceRevision : '');
+var dock = new dockModule.Dock({execute: agentExecute, build: nativeBuild, port: function () { return PORT; },
+    // Vol/123 switched, or the launcher mode changed: the bridge restarts with the new key list, and Vetro UI turns the
+    // remote interception on (or back off, if it had turned it on itself) when its keys need it.
+    onVolumeChange: function () { stopInput('keys'); return vetroUiInput(); },
+    onMotionChange: function () { tuner.writeFeatures(); },
     home: {
         restore: function () { return applySamsungHome(false); }
     },
+    // At the moment of choosing (fresh) the whole registry is read, as for the dashboard's list. The lookup about once a minute
+    // after that uses the app list in memory when it is recent, and otherwise reads that app's row alone (AppRegistry.one).
     appCheck: function (appId, fresh) {
+        if (!fresh && !(registryCache && Date.now() - registryAt < 60000)) {
+            return AppRegistry.one(agentExecute, appId).then(function (row) { return dockModule.customAppCheck(row ? [row] : [], appId, false); });
+        }
         return inventory(!!fresh).then(function (d) {
             if (d.registryError) throw new Error('App registry unavailable');
             return dockModule.customAppCheck(d.apps, appId, !!fresh);
         });
     }});
+// Vetro TV Tuner: a native part like the launcher (tuner.js), run by the bundled plugin registered below.
+var tunerModule = require('./tuner.js');
+var tuner = new tunerModule.Tuner({execute: agentExecute, build: nativeBuild, noMotion: function () { return dock.readState().noMotion; }});
 var hbbtv = new (require('./hbbtv.js').Control)(agentExecute);
 // #135: factory, hotel and shop apps, and the Aging key AgingApp can leave at 1 (factory-apps.js).
 var factoryApps = require('./factory-apps.js');
 var factoryTest = new factoryApps.FactoryTest(agentExecute);
 var wins = new (require('./quick-wins.js').Wins)(agentExecute, {dns: dnsFilter});
+// Remote key guides: the capsule with a picture of the remote ("Press Volume: Mute", the play/pause wheel) that Samsung's
+// volume-app and tv-viewer show on a key press. Each shows its guide while its own "done" flag is false and then sets it; on
+// Tizen 9 the flags are memory keys (memory/volume-app/key_guide_status, memory/tv-viewer/key_guide_status), cleared at every
+// cold boot, so the guides come back after each power-on (2021-22 firmware keep tv-viewer's in db/tv-viewer/key_guide_status,
+// so they show once). Samsung's own "Settings menu guide" switch reads neither. With this on, Vetro sets the flags that exist
+// to done now and after every boot; off sets the memory ones back to Samsung's default. Read from the firmware (2026-11-19),
+// not yet tried on a Tizen 9 TV. Kept here rather than in quick-wins.js: that file is unchanged since 0.5.0 and the update
+// from 0.5.0 has no room for one more changed file.
+var keyGuides=(function(){
+    var FILE='/opt/usr/home/owner/share/vetro-key-guides.json', KEYS=['memory/volume-app/key_guide_status','memory/tv-viewer/key_guide_status','db/tv-viewer/key_guide_status'];
+    function chosen(){try{return JSON.parse(fs.readFileSync(FILE,'utf8')).on===true;}catch(e){return false;}}
+    // One line per key that exists: K|<key>|<value>. vconftool prints a bool as "... = True (Boolean)" (seen on the Q80A); looking for
+    // "(Bool)" and digits found no key at all, and the switch read "unknown" on a Tizen 9 S95C (preview12 export).
+    function script(value){return KEYS.map(function(k){var memory=k.indexOf('memory/')===0;
+        return 'o=$(vconftool get '+k+' 2>/dev/null); case "$o" in *"(Bool)"*|*"(Boolean)"*) t=bool;; *"(Int32)"*) t=int;; *) t=;; esac; '+
+            'if [ -n "$t" ]; then '+(value===null||(value===0&&!memory)?'':'vconftool set -f -t $t '+k+' '+value+' >/dev/null 2>&1; ')+
+            'echo "K|'+k+'|$(vconftool get '+k+' 2>/dev/null | sed -n "s/.*= \\([A-Za-z0-9]*\\) .*/\\1/p")"; fi';}).join('\n')+'\ntrue';}
+    function run(value){return agentExecute('echo '+Buffer.from(script(value)).toString('base64')+' | base64 -d | sh',15000).then(function(r){
+        var keys={};String(r&&r.stdout||'').split('\n').forEach(function(l){var f=l.split('|');if(f[0]==='K'&&f.length===3)keys[f[1]]=f[2]==='1'||f[2]==='True'||f[2]==='true';});return keys;});}
+    function status(keys){var names=Object.keys(keys);if(!names.length)return {status:'unknown'};
+        var on=chosen(),done=names.every(function(k){return keys[k];});return {status:!on?'off':done?'on':'partial',keys:names.length};}
+    return {
+        read:function(){return run(null).then(status);},
+        apply:function(on){
+            try{atomicFile.write(fs,FILE,JSON.stringify({on:on===true}));}catch(e){return Promise.reject(Error('The setting could not be saved: '+e.message));}
+            return run(on?1:0).then(status);},
+        boot:function(){return chosen()?run(1):Promise.resolve(null);}
+    };
+})();
 // Apps removed through Vetro stay removed (keep-removed.js; idea and mechanism by zabique, github.com/zabique/vetro).
 var keepRemoved = new (require('./keep-removed.js').KeepRemoved)(agentExecute);
 var presence = new (require('./presence.js').Presence)(agentExecute);
@@ -81,6 +129,12 @@ var leftovers = new (require('./leftovers.js').Leftovers)(agentExecute);
 var TOGGLE_IDS = debloat.VERIFIED_GLOBAL_IDS.concat(quickSettings.ALLOWED_IDS);
 // The package builder writes a non-default port into build-info.js (VETRO_PORT=... node build.cjs);
 // VETRO_PORT at run time still wins for local runs.
+// A port chosen in Apps2Samsung is not in build-info.js: after a self-update it survives only in config.xml (see
+// packagePort). Read from there, the service stays on the user's port and the updater keeps it in the files it installs.
+if (!buildInfo.port) {
+    try { var keptPort = require('./updater.js').packagePort(fs.readFileSync(path.join(__dirname, '..', 'config.xml'), 'utf8')); if (keptPort) buildInfo.port = keptPort; }
+    catch (e) { /* no config.xml beside the service (a local run): the default port */ }
+}
 var PORT = Number(process.env.VETRO_PORT) || buildInfo.port || 8099;
 // Tasks that wait for the root agent after a boot (DNS filter, quick wins, keep-removed check, Vetro's own startup flags) try every
 // 5 s for this many rounds. The agent can take minutes to come up; the DNS filter used to give up after one (12 rounds).
@@ -151,22 +205,68 @@ function readTelemetry() {
 
 // What the TV screen shows. The launcher's pid check is the only root command, and it runs only while the launcher is on.
 function screenSummary() {
+    // Opening the screen (or OK on Check again) is someone waiting for root: a relaunch waiting for its backoff runs now.
+    if (typeof platform.retryNow === 'function') platform.retryNow();
     var launcherState = dock.readState(), p = platform.status();
     launcherState.enabled = launcherState.enabled || !!launcherState.customApp;     // the TV screen shows either launcher as "on"
-    var checkLauncher = launcherState.enabled && p.agent.connected ? dock.probe().then(function (r) { return r.running; }, function () { return null; }) : Promise.resolve(null);
+    var checkLauncher = launcherState.enabled && p.agent.connected ? dock.runningNow().then(function (r) { return r.running; }, function () { return null; }) : Promise.resolve(null);
     return checkLauncher.then(function (running) {
-        return require('./screen-status.js').build({version: buildInfo.version, port: PORT, platform: p, input: inputSnapshot(),
+        // restarting: a start of the remote bridge is under way and none has failed yet (the TV screen says "Reconnecting", not "not found").
+        // dropping: a helper was lost twice or more in two minutes, a loop to report rather than a start to wait for.
+        var now = Date.now(), lastTurn = inputHistory[inputHistory.length - 1];
+        var drops = inputHistory.filter(function (e) { return (e.kind === 'lost' || e.kind === 'ended') && now - e.at < 120000; }).length;
+        var restarting = !inputError && drops < 2 && (inputRestoring || !!(lastTurn && now - lastTurn.at < 15000 && /^(?:stop|lost|ended|restore|agent)$/.test(lastTurn.kind)));
+        return require('./screen-status.js').build({version: buildInfo.version, port: PORT, platform: p, input: Object.assign(inputSnapshot(), {restarting: restarting, dropping: drops >= 2}),
             launcher: {installed: dock.installed(), enabled: launcherState.enabled, running: running, failures: dock.failures, error: !!dock.lastError},
             meminfo: tryReadRaw('/proc/meminfo'), interfaces: os.networkInterfaces()});
     });
 }
 
+// The quick controls of the TV screen (service/screen-controls.js). A change goes through the same locks as the dashboard's:
+// the app-change lock for the quick-settings groups, the launcher's and the tuner's own busy flags.
+function applyQuick(id, off) {
+    if (debloatBusy) return Promise.reject(Object.assign(new Error('App change already in progress'), {statusCode: 409}));
+    debloatBusy = true;
+    return Promise.resolve().then(function () {
+        return quickSettings.apply(id, off, {execute: agentExecute, inventory: inventory, invalidate: function () { invalidateInventory(); }});
+    }).then(function (d) { debloatBusy = false; return d; }, function (e) { debloatBusy = false; throw e; });
+}
+// Built on first use: the updater is created further down this file.
+var screenControlsObject = null;
+function screenControls() {
+    return screenControlsObject || (screenControlsObject = new (require('./screen-controls.js').Controls)({dock: dock, tuner: tuner, updater: updater,
+        inventory: function (refresh) { return inventory(refresh); }, applyQuick: applyQuick,
+        agentConnected: function () { return !!platform.status().agent.connected; },
+        pluginRunning: function (id) { var inst = plugins.get(id); return !!(inst && inst.route); }}));
+}
+
 // --- HTTP routing ---------------------------------------------------------
+// A JSON answer over 1 KB goes gzipped to a client that accepts it (the dashboard's browser; the app list is a few hundred KB).
+// Level 1 and synchronous, so serveJson still answers before it returns (callers check headersSent after it). res.vetroGzip
+// is set by the request handler from Accept-Encoding (Node 12 has no res.req).
+var GZIP_MIN_BYTES = 1024, GZIP_RE = /\bgzip\b/;
+function withVary(res, headers) {
+    var before = typeof res.getHeader === 'function' ? res.getHeader('vary') : null;
+    headers.vary = before ? String(before) + ', accept-encoding' : 'accept-encoding';
+    return headers;
+}
 function serveJson(res, obj, code) {
     if (res.destroyed || res.writableEnded) return;
-    res.writeHead(code || 200, { 'content-type': 'application/json; charset=utf-8',
-        'connection': code === 413 || code === 408 ? 'close' : 'keep-alive' });
-    res.end(JSON.stringify(obj, null, 2) + '\n');
+    var headers = { 'content-type': 'application/json; charset=utf-8',
+        'connection': code === 413 || code === 408 ? 'close' : 'keep-alive' };
+    var body = JSON.stringify(obj) + '\n';
+    if (res.vetroGzip === true && body.length > GZIP_MIN_BYTES) {
+        var packed = null;
+        try { packed = require('zlib').gzipSync(Buffer.from(body, 'utf8'), {level: 1}); } catch (e) { packed = null; }
+        if (packed) {
+            headers['content-encoding'] = 'gzip';
+            headers['content-length'] = packed.length;
+            res.writeHead(code || 200, withVary(res, headers));
+            return res.end(packed);
+        }
+    }
+    res.writeHead(code || 200, headers);
+    res.end(body);
 }
 
 function serveHtml(res, html) {
@@ -176,7 +276,27 @@ function serveHtml(res, html) {
 
 function dashboardHtml() { return renderDashboard(); }
 
+// The dashboard is the same text for every request (about 440 KB): it is built and compressed once, and a browser that
+// already has it is told so (ETag) instead of being sent it again. Only the compressed copy is kept in memory.
+var dashboardCache = null;
+function serveDashboard(req, res) {
+    var headers = (req && req.headers) || {};
+    if (!dashboardCache) {
+        var text = auth.decorate(dashboardHtml()), packed = null;
+        try { packed = require('zlib').gzipSync(Buffer.from(text, 'utf8')); } catch (e) { /* served plain */ }
+        if (!packed) return serveHtml(res, text);
+        dashboardCache = {gzip: packed, etag: '"' + require('crypto').createHash('sha1').update(packed).digest('hex').slice(0, 20) + '"'};
+    }
+    var out = {'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-cache', 'etag': dashboardCache.etag, 'vary': 'accept-encoding'};
+    if (headers['if-none-match'] === dashboardCache.etag) { res.writeHead(304, out); return res.end(); }
+    if (!/\bgzip\b/.test(String(headers['accept-encoding'] || ''))) return serveHtml(res, auth.decorate(dashboardHtml()));
+    out['content-encoding'] = 'gzip';
+    res.writeHead(200, out);
+    res.end(dashboardCache.gzip);
+}
+
 var diagnosticPending = null, diagnosticComponents = false;
+function diagnosticParts(text) { return require('./diagnostic-report.js').parts(text); }
 function downloadDiagnostics(res, withComponents) {
     // The CPU rate needs a second sample 1.5 s after the first, and the TV runs its commands one after the other:
     // read together, the sample waited behind the 13 s startup listing and came back without a rate (4 of 7 reports).
@@ -205,8 +325,93 @@ function downloadDiagnostics(res, withComponents) {
         privacy: later(function () { return privacy.read(); }),
         hbbtv: later(function () { return hbbtv.read(); }),
         // The collector treats a truthy "error" as an unreadable section; the launcher keeps its last error there.
-        launcher: later(function () { return dock.status().then(function (d) { return Object.assign({}, d, {error: null, hasError: !!d.error}); }); }),
-        quickWins: later(function () { return wins.read(); }),
+        // keyLog: the launcher's log lines about the keys it is handed (Vol, Mute, 123), their windows and the Audio card; the report keeps fixed shapes only.
+        launcher: later(function () { return dock.status().then(function (d) {
+            // openLog: the launcher's last openings with their timings (Home, the Control center, All apps...), "perf open ..." lines.
+            return agentExecute('echo ' + Buffer.from("grep -E '^[0-9:.]+ (command |volume|unmute key|pad|outputs: speaker selection|outputs: Use(Tv|External) |fifo: |screen: |home: |launch com.samsung.tv.csfs |launch [^ ]+ via HbbTV|launch via HbbTV)' " + dockModule.LOG_FILE + ' | tail -n 24; echo ---; grep -E \'^[0-9:.]+ perf open \' ' + dockModule.LOG_FILE + ' | tail -n 12').toString('base64') + ' | base64 -d | sh', 5000)
+                .then(function (r) { return r && r.stdout || ''; }, function () { return ''; })
+                .then(function (out) { var parts = diagnosticParts(out); return Object.assign({}, d, {error: null, hasError: !!d.error, keyLog: parts[0] || '', openLog: parts[1] || ''}); }); }); }),
+        // tunerLog: the tuner's start and its talk with Samsung's TV client (EFL start, which client was loaded, the first reads, a stall, an
+        // exception, its window), then its last show / hide / takeover lines; the report keeps fixed shapes only and cuts the channel name
+        // off the first read. tunerThreads: each thread of the running tuner as name|state|kernel wait (and the kernel stack's function
+        // names for a thread stuck in D): which thread stops, and where, when the start stalls (S95B, 2022).
+        tuner: later(function () { return tuner.status().then(function (d) {
+            var log = tunerModule.LOG_FILE, pid = tunerModule.PID_FILE;
+            return agentExecute('echo ' + Buffer.from("grep -E '^\\+[0-9]+ms (elm_init |tvs: |tvs worker: |start |window up |elm_win_add |pipe failed)' " + log + " | head -n 30; " +
+                "grep -E '^\\+[0-9]+ms (shown$|hidden$|not shown|takeover: |resume: |live: |input: source type )' " + log + " | tail -n 12; echo ---; " +
+                "p=$(cat " + pid + " 2>/dev/null); [ -n \"$p\" ] && for t in /proc/$p/task/*; do s=$(sed 's/.*) //' $t/stat | cut -d' ' -f1); k=''; " +
+                "[ \"$s\" = D ] && k=$(sed 's/.*] //' $t/stack 2>/dev/null | cut -d+ -f1 | head -n 8 | tr '\\n' ' '); echo \"$(cat $t/comm)|$s|$(cat $t/wchan 2>/dev/null)|$k\"; done; true").toString('base64') + ' | base64 -d | sh', 5000)
+                .then(function (r) { return r && r.stdout || ''; }, function () { return ''; })
+                .then(function (out) { var parts = diagnosticParts(out); return Object.assign({}, d, {error: null, hasError: !!d.error, tunerLog: parts[0] || '', tunerThreads: parts[1] || ''}); }); }); }),
+        input: later(function () {
+            var pref = inputPreference(), snap = inputSnapshot(), keys = keyFlags(), helperLog = '', prevHelperLog = '', subtype = '', remoconNode = '', now = Date.now();
+            // What the restore loop is waiting on, read before the commands below: paused by the Remapper, the service's input stopped, a
+            // start in progress, a pause after a fault or failed tries, no key to hold.
+            var loop = {paused: inputPaused, lifecycle: inputLifecycleActive, restoring: inputRestoring, faultPauseSeconds: Math.max(0, Math.ceil((inputFaultUntil - now) / 1000)),
+                retryWaitSeconds: Math.max(0, Math.ceil((inputRetryAt - now) / 1000)), retryFailures: inputFailures, tokenCount: inputTokens().length, mode: snap.policy && snap.policy.mode};
+            var history = inputHistory.map(function (e) { return {secondsAgo: Math.round((now - e.at) / 1000), kind: e.kind, why: e.why}; });
+            // The helper's own last words (it writes them to /tmp/vetro-input.log, root only): why it could not hold the remote. The helper
+            // before it (vetro-input.prev.log) says why that one ended.
+            // remoconSubtype: whether the helper's copy of the remote was made a Remocon (its "remocon subtype: ..." line).
+            // The Remocon lines are read apart (the previous helper's log first, so the current helper's line wins) and kept out of the last
+            // words, where they would push out an exception logged before them.
+            return agentExecute('grep -v "^remocon " /tmp/vetro-input.log 2>/dev/null | tail -n 2; echo ---; grep -v "^remocon " /tmp/vetro-input.prev.log 2>/dev/null | tail -n 2; echo ---; ' +
+                'grep -h "remocon subtype: " /tmp/vetro-input.prev.log /tmp/vetro-input.log 2>/dev/null | tail -n 1; echo ---; grep -h "remocon node: " /tmp/vetro-input.prev.log /tmp/vetro-input.log 2>/dev/null | tail -n 1', 5000).then(function (r) {
+                var parts = diagnosticParts(r && r.stdout); helperLog = parts[0] || ''; prevHelperLog = parts[1] || ''; subtype = parts[2] || ''; remoconNode = parts[3] || ''; }, function () {}).then(function () {
+                return physical.inventory();
+            }).then(function (all) {
+                var named = pref.device ? all.filter(function (d) { return d.name === pref.device; }) : null;
+                // Which of the same-name nodes advertise keys (what restoreInput chooses among), and whether the node saved with the choice is
+                // still one of them: a remote whose nodes were renumbered after a reboot, with several keyed ones, cannot be picked again.
+                var keyed = named ? named.filter(function (d) { try { return d.selectable && KEY_CAPABILITY_RE.test(require('fs').readFileSync('/sys/class/input/' + d.node.split('/').pop() + '/device/capabilities/key', 'utf8')); } catch (e) { return false; } }) : null;
+                return {enabled: pref.enabled === true, auto: pref.auto === true, connected: !!(snap.policy && snap.policy.connected),
+                    keyedSameNameCount: keyed ? keyed.length : null, savedNodePresent: named && pref.node ? named.some(function (d) { return d.node === pref.node; }) : null,
+                    savedPresent: named ? named.some(function (d) { return d.selectable; }) : null, sameNameCount: named ? named.length : null,
+                    selectableCount: all.filter(function (d) { return d.selectable; }).length, volumeKeys: keys.volume, padKey: keys.pad, problem: !!vetroUiInputProblem, failure: inputError || (snap.error || null), helperLog: helperLog, prevHelperLog: prevHelperLog, remoconSubtype: subtype.trim(), remoconNode: remoconNode.trim(), loop: loop, history: history,
+                    recentKeys: (snap.events || []).filter(function (e) { return e && e.action === 'down'; }),
+                    volumeRoute: volumeRoute ? {route: volumeRoute.route, errno: volumeRoute.errno, ageSeconds: Math.round((Date.now() - volumeRoute.at) / 1000)} : null};
+            });
+        }),
+        quickWins: later(function () { return wins.read().then(function (d) { return keyGuides.read().then(function (k) { d.wins.keyguides = k; return d; }, function () { return d; }); }); }),
+        // What differs between firmware generations and the open questions of the 0.6.9 previews, read as root in one go: one line per item,
+        // "name|value", every value cut down to a number, a yes/no or a fixed word by the report (diagnostic-report.js FIRMWARE). No paths, names
+        // or text of the user's: the app in front is reported as a kind (Samsung's Home, live TV, Vetro, another app).
+        firmware: later(function () {
+            var v = function (k) { return '$(vconftool get ' + k + ' 2>/dev/null | sed -n "s/.*value = \\(.*\\) (.*)$/\\1/p" | head -n 1)'; };
+            var has = function (p) { return '$([ -e ' + p + ' ] && echo 1 || echo 0)'; };
+            var lines = [
+                'rootApp|' + has('/usr/bin/get_root_app'), 'rootColdBoot|' + v('db/appfw/is_root_cold_boot'), 'homeApp|' + v('db/appfw/home_appid'),
+                'autoStart|' + v('db/menu/smart_hub/ontvsetting/auto_start'), 'appBooting|' + v('db/menu/app_booting'),
+                'firstscreenState|' + v('memory/volt/firstscreen_state'), 'showStatus|' + v('memory/eden/show_status'),
+                'front|' + v('memory/appfw/current_fullscreen_appid'), 'homeShown|' + v('memory/avoc/home_shown'),
+                'pictureMode|$(busctl --timeout=3 call org.tizen.tv.avoc /org/tizen/tv/avoc org.tizen.tv.avoc.AvOutputControl GetPictureMode i 1 2>/dev/null)',
+                'speakerSelection|' + v('file/private/sound/feature/SpeakerSelection'),
+                // Samsung's universal remote (mbr-daemon) driving an optical soundbar by IR (Ghidra, Tizen 9, 2026-11-20): it takes Vol from
+                // volume-app only with the route on optical, an MBR activity whose input is optical and ext_bt_spp_spdif_status != 2. ext_volume is
+                // -1 / -2 once it has sent an IR Vol+ / Vol- since boot. The activity list leaves as base64 and the report keeps only its numbers.
+                'extVolume|' + v('memory/tv-viewer/ext_volume'), 'mbrDaemon|$(pgrep -x mbr-daemon >/dev/null 2>&1 && echo 1 || echo 0)',
+                'mbrIndex|' + v('db/mbr/activityindex'), 'spdifStatus|' + v('memory/org.tizen.bt-settings-external-controller/ext_bt_spp_spdif_status'),
+                'mbrActivity|$(vconftool get db/mbr-daemon/mbr-activity 2>/dev/null | head -c 24000 | base64 | tr -d "\\n")',
+                'displayState|' + v('memory/pm/state'),
+                'autoProtection|' + v('db/menu/system/auto_protection_time'), 'screensaverOn|' + v('memory/window_system/screensaver_on_off'),
+                'screensaverRunning|$(pgrep -f glscreensaver >/dev/null 2>&1 && echo 1 || echo 0)',
+                'guideVolume|' + v('memory/volume-app/key_guide_status'), 'guideViewer|' + v('memory/tv-viewer/key_guide_status'),
+                'guideViewerDb|' + v('db/tv-viewer/key_guide_status'), 'settingsMenuGuide|' + v('db/menu/settings_menu_guide'), 'oobStatus|' + v('db/btapp/oob_status'),
+                'netcoreapp|$(readlink /usr/share/dotnet.tizen/netcoreapp 2>/dev/null)', 'inputKeyevent|' + has('/usr/bin/input_keyevent'),
+                'volumeApp|$([ -d /usr/apps/org.tizen.volume-app ] || [ -d /opt/usr/apps/org.tizen.volume-app ] && echo 1 || echo 0)',
+                'functionOsd|$([ -d /usr/apps/org.tizen.function-osd ] || [ -d /opt/usr/apps/org.tizen.function-osd ] || [ -d /usr/apps/com.samsung.tv.virtual-remote ] && echo 1 || echo 0)',
+                'quicklaunch|$([ -d /usr/apps/com.samsung.tv.quicklaunch ] || [ -d /opt/usr/apps/com.samsung.tv.quicklaunch ] && echo 1 || echo 0)',
+                'hbbtvApp|$([ -d /usr/apps/org.tizen.hbbtv ] || [ -d /opt/usr/apps/org.tizen.hbbtv ] && echo 1 || echo 0)',
+                'inputHelpers|$(ps -eo args 2>/dev/null | grep -c "[S]amsungTvRemoteInputAgent.dll")',
+                'uptime|$(cut -d. -f1 /proc/uptime 2>/dev/null)'
+            ];
+            var script = lines.map(function (l) { var i = l.indexOf('|'); return 'echo "' + l.slice(0, i) + '|' + l.slice(i + 1) + '"'; }).join('\n');
+            return agentExecute('echo ' + Buffer.from(script).toString('base64') + ' | base64 -d | sh', 15000).then(function (r) {
+                var out = {};
+                String(r && r.stdout || '').split('\n').forEach(function (l) { var i = l.indexOf('|'); if (i > 0) out[l.slice(0, i)] = l.slice(i + 1).trim(); });
+                return out;
+            });
+        }),
         factoryTest: later(function () { return factoryTest.read(); }),
         // Opt-in: the manifests of the components the catalog does not know. Without the box ticked the section says so.
         components: withComponents
@@ -304,11 +509,26 @@ function readJsonBody(req, res, cb, maxBytes) {
 // The TV agent executes commands serially. Start each request's timeout only
 // when it is actually sent, rather than while it waits behind other probes.
 var commandQueue=Promise.resolve(), queuedCommands=0;
+// How many root commands were sent in each of the last ten minutes (newest first), in memory, shown by GET /status as
+// rootCommands: an idle TV shows how quiet the service is. Counted when a command is handed to the agent.
+var COMMAND_MINUTES=10, commandMinutes=[], commandTotal=0;
+function countCommand(now){
+    var minute=Math.floor(now/60000);
+    if(!commandMinutes.length||commandMinutes[0].minute!==minute)commandMinutes.unshift({minute:minute,count:0});
+    if(commandMinutes.length>COMMAND_MINUTES)commandMinutes.length=COMMAND_MINUTES;
+    commandMinutes[0].count++;commandTotal++;
+}
+function commandStats(now){
+    var minute=Math.floor(now/60000),perMinute=[];
+    for(var i=0;i<COMMAND_MINUTES;i++){var m=commandMinutes.filter(function(x){return x.minute===minute-i;})[0];perMinute.push(m?m.count:0);}
+    return {perMinute:perMinute,lastTenMinutes:perMinute.reduce(function(a,b){return a+b;},0),sinceStart:commandTotal,queued:queuedCommands};
+}
 function agentExecute(cmd, timeoutMs, dispatchGuard) {
-    if(queuedCommands>=32)return Promise.reject(new Error('TV is busy; try again in a few seconds'));
+    if(queuedCommands>=32)return Promise.reject(Object.assign(new Error('TV is busy; try again in a few seconds'),{code:'agent-busy'}));
     queuedCommands++;
     var result=commandQueue.then(function(){
         if(dispatchGuard&&!dispatchGuard())throw new Error('TV command cancelled before dispatch');
+        if(platform.status().agent.connected)countCommand(Date.now());
         return platform.execute(cmd,timeoutMs||30000);
     });
     commandQueue=result.catch(function(){});
@@ -360,6 +580,8 @@ function handleControl(req, res) {
             return serveJson(res, { error: 'missing "key" (see GET /control for names)' }, 400);
         }
         var cmd = control.injectCommand(key);
+        // Home goes to the Vetro launcher's FIFO while it holds the key (key-routing.js), or it would only reach the launcher's window.
+        if (cmd && key === 'XF86Home') cmd = keyRouting.homeCommand(cmd);
         if (!cmd) {
             return serveJson(res, { error: 'unknown key ' + key, keys: control.KEYS }, 400);
         }
@@ -426,6 +648,7 @@ function handleDebloatAction(req, res) {
         if(debloatBusy)return serveJson(res,{ok:false,error:'App change already in progress'},409);debloatBusy=true;
         var id=appIds[0],desired=action==='disable',original;
         if(id==='com.samsung.tv.csfs'&&(dock.readState().customApp||desired&&dock.readState().enabled)){debloatBusy=false;return serveJson(res,{ok:false,error:homeLockMessage()},409);}
+        if(id===tunerModule.TARGET_APP&&desired&&tuner.readState().enabled){debloatBusy=false;return serveJson(res,{ok:false,error:tunerLockMessage()},409);}
         inventory(true).then(function(d){var row=d.apps.find(function(a){return a.appId===id;});if(d.registryError)throw Error('App registry unavailable');if(!row){var missing=Error('App not installed');missing.statusCode=409;throw missing;}var capability=ComponentActions.availability(row,d.apps,TOGGLE_IDS).toggle;if(!capability.allowed){var unavailable=Error(capability.reason);unavailable.statusCode=409;throw unavailable;}original=row.disabled;if(original===desired)return {ok:true,verified:true,changed:false,appId:id,disabled:desired};
             return agentExecute('pkgcmd '+(desired?'-D':'-A')+' -t app -n '+id+' --global',15000).then(function(r){if(r.exit_code||r.timed_out)throw Error(r.stderr||r.stdout||'App state unchanged');invalidateInventory();return inventory(true);}).then(function(after){var r=after.apps.find(function(a){return a.appId===id;});if(after.registryError||!r||r.disabled!==desired)throw Error('Global flag not confirmed');return {ok:true,verified:true,changed:true,appId:id,disabled:r.disabled,scope:'Global flag confirmed; running processes may remain until the next launch'};}).catch(function(e){return agentExecute('pkgcmd '+(original?'-D':'-A')+' -t app -n '+id+' --global',15000).then(function(r){if(r.exit_code||r.timed_out)throw Error('Restore not confirmed');invalidateInventory();return inventory(true);}).then(function(d){var restored=d.apps.find(function(a){return a.appId===id;});throw Error(e.message+' · '+(restored&&restored.disabled===original&&!d.registryError?'previous flag restored':'restore not confirmed'));},function(){throw Error(e.message+' · restore not confirmed');});});
         }).then(function(d){
@@ -501,18 +724,20 @@ function inventory(refresh) {
         .finally(function(){registryPending=null;});
     return registryPending;
 }
-function handleComponentAction(req,res) {
-    readJsonBody(req,res,function(p) {
-        if(debloatBusy)return serveJson(res,{ok:false,error:'App change already in progress'},409);debloatBusy=true;
-        inventory(true).then(function(d) {
+// One action on one component (stop, a startup flag, uninstall): validated against a fresh app list, run, read back.
+// Resolves the answer; a refusal or a failure rejects (statusCode 400 for a bad request). The caller holds debloatBusy.
+function componentAction(p) {
+        return inventory(true).then(function(d) {
             if(d.registryError)throw Error('App registry unavailable; no command sent');
             var a;
             try { a=ComponentActions.validate(p,d.apps); }
             catch(e) { e.statusCode=400;throw e; }
-            var factoryResult;
+            var factoryResult, cleanup;
             // Keep removed: Samsung's row, and with it the store id, can be gone once the package is. Read it first.
             var learned=p.action==='uninstall'?keepRemoved.learn(a.packageId):Promise.resolve(false);
-            return learned.then(function(){return agentExecute(ComponentActions.command(p,a),30000);}).then(function(r) {
+            // The registry ids of the package, read before it is gone: they tell which Home line, registry row and icon folder to clean after.
+            var widgetIds=[], idsRead=p.action==='uninstall'?homeCleanup.learn(agentExecute,a.packageId):Promise.resolve([]);
+            return Promise.all([learned,idsRead]).then(function(x){widgetIds=x[1];return agentExecute(ComponentActions.command(p,a),30000);}).then(function(r) {
                 // #135: AgingApp stopped this way leaves db/FactoryApp/Aging at 1, and the TV starts the test again at every boot.
                 // Put it back to 0 (only if it reads exactly 1), right after the stop command and whatever it answered:
                 // the process check below can fail on its own, and a stuck AgingApp is when the key matters most.
@@ -528,11 +753,38 @@ function handleComponentAction(req,res) {
                         !results[1].processes.some(function(x){return x.appId===p.appId});
                     // Removed on purpose and gone: put it on the list so Samsung's sync does not bring it back (switch on only).
                     if(verified&&p.action==='uninstall'&&keepRemoved.enabled()){try{keepRemoved.change('add',[a.packageId]);keepRemoved.check().catch(function(){});}catch(e){/* Vetro's own packages are refused */}}
-                    debloatBusy=false;serveJson(res,{ok:verified,verified:verified,action:p.action,appId:p.appId,packageId:a.packageId,changed:p.action==='flags'?a[p.flag]!==p.enabled:undefined,
-                        error:verified?null:'Requested state not confirmed; the component may have restarted.',output:r.stdout,apps:after.apps,factoryTest:factoryResult});
+                    // `pkgcmd -u` leaves the Home line, the registry row and the icon folder (Samsung's own uninstaller removes them and tells the Home).
+                    // Cleaned here, then the launcher rebuilds its list, or its tile stays until the next start and does not open.
+                    var afterUninstall=verified&&p.action==='uninstall'?homeCleanup.clean(agentExecute,a.packageId,widgetIds).then(function(c){
+                        cleanup=c;invalidateInventory();
+                        launcherFollow();
+                    }):Promise.resolve();
+                    return afterUninstall.then(function(){
+                    return {ok:verified,verified:verified,action:p.action,appId:p.appId,packageId:a.packageId,changed:p.action==='flags'?a[p.flag]!==p.enabled:undefined,
+                        error:verified?null:'Requested state not confirmed; the component may have restarted.',output:r.stdout,apps:after.apps,factoryTest:factoryResult,cleanup:cleanup};
+                    });
                 });
             }).catch(function(e){if(factoryResult)e.factoryTest=factoryResult;throw e;});
-        }).catch(function(e){debloatBusy=false;serveJson(res,e.factoryTest?{ok:false,error:e.message,factoryTest:e.factoryTest}:{ok:false,error:e.message},e.statusCode||503)});
+        });
+}
+function handleComponentAction(req,res) {
+    readJsonBody(req,res,function(p) {
+        if(debloatBusy)return serveJson(res,{ok:false,error:'App change already in progress'},409);debloatBusy=true;
+        componentAction(p).then(function(d){debloatBusy=false;serveJson(res,d);})
+            .catch(function(e){debloatBusy=false;serveJson(res,e.factoryTest?{ok:false,error:e.message,factoryTest:e.factoryTest}:{ok:false,error:e.message},e.statusCode||503)});
+    });
+}
+// Quick settings → Uninstall (quick-uninstall.js). GET: what this TV can uninstall from the named list. POST {id}: uninstall
+// that entry, each of its packages through componentAction above, under the same lock as every other app change.
+function handleQuickUninstall(req,res) {
+    if(req.method==='GET')return inventory(false).then(function(d){
+        serveJson(res,d.registryError?{items:[],error:'The TV’s app list could not be read'}:{items:quickUninstall.candidates(d.apps)});
+    }).catch(function(e){serveJson(res,{items:[],error:e.message},503);});
+    readJsonBody(req,res,function(p){
+        if(debloatBusy)return serveJson(res,{ok:false,error:'App change already in progress'},409);debloatBusy=true;
+        Promise.resolve().then(function(){return quickUninstall.uninstall(p&&p.id,{inventory:inventory,componentAction:componentAction});})
+            .then(function(d){debloatBusy=false;serveJson(res,d);})
+            .catch(function(e){debloatBusy=false;serveJson(res,{ok:false,error:e.message},e.statusCode||503);});
     });
 }
 // Samsung's Home put back by the service itself (a leftover of an earlier custom launcher build): the same group switch, run from the service.
@@ -546,11 +798,23 @@ function homeLockMessage() {
     var s=dock.readState();
     return s.customApp?'Turn off the custom launcher before changing Samsung Home':s.enabled?'Turn off the Vetro launcher before changing Samsung Home':null;
 }
+// Samsung's live TV app stays installed and enabled while Vetro TV Tuner is on: the tuner covers it, but a disabled
+// app would leave the takeover with nothing to watch and nobody to hand the screen back to.
+function tunerLockMessage() { return 'Turn off Vetro TV Tuner before disabling Samsung\u2019s TV app'; }
+// An app was uninstalled, or switched off or on: the Vetro launcher reads the lists again and redraws its pages without a restart (relist, reload);
+// the custom launcher's headless process is started again as before. Busy or off: the next start, or the launcher's own check, rebuilds them.
+function launcherFollow(){var launcher=dock.readState();
+    if(launcher.enabled&&!launcher.customApp)dock.relist().catch(function(){});
+    else if(launcher.customApp)dock.refresh().catch(function(){});}
 function handleQuick(req,res) {readJsonBody(req,res,function(p){
     if(p.id==='samsung-home'&&homeLockMessage())return serveJson(res,{ok:false,error:homeLockMessage()},409);
     if(debloatBusy)return serveJson(res,{ok:false,error:'App change already in progress'},409);debloatBusy=true;
     Promise.resolve().then(function(){return quickSettings.apply(p.id,p.off,{execute:agentExecute,inventory:inventory,invalidate:function(){invalidateInventory();}});})
-        .then(function(d){debloatBusy=false;serveJson(res,d);}).catch(function(e){debloatBusy=false;serveJson(res,{ok:false,error:e.message},e.statusCode||503);});
+        .then(function(d){debloatBusy=false;
+            // An app switched off or on again (the "apps" groups): the launcher rebuilds its list, so the tile goes or comes back now and not at the next start.
+            var group=quickSettings.find(p.id);
+            if(group&&group.section==='apps'&&d&&d.ok!==false)launcherFollow();
+            serveJson(res,d);}).catch(function(e){debloatBusy=false;serveJson(res,{ok:false,error:e.message},e.statusCode||503);});
 });}
 // {enabled:true|false}; the first 0.5.0 release form {disabled:true|false} is still accepted. Turning pairing on needs a paired browser
 // (or the TV itself): pairing first proves the TV can show the code, so nobody locks themselves out of the dashboard.
@@ -578,7 +842,7 @@ function handleSdbAccess(req,res) {
 }
 function handleWins(req,res) {readJsonBody(req,res,function(p){
     if(debloatBusy)return serveJson(res,{ok:false,error:'App change already in progress'},409);debloatBusy=true;
-    Promise.resolve().then(function(){return wins.apply(p.id,p.on);}).then(function(d){debloatBusy=false;serveJson(res,d);}).catch(function(e){debloatBusy=false;serveJson(res,{ok:false,error:e.message},409);});
+    Promise.resolve().then(function(){if(p.id==='keyguides'){if(typeof p.on!=='boolean')throw Error('Invalid state');return keyGuides.apply(p.on);}return wins.apply(p.id,p.on);}).then(function(d){debloatBusy=false;serveJson(res,d);}).catch(function(e){debloatBusy=false;serveJson(res,{ok:false,error:e.message},409);});
 });}
 // Keep removed apps removed: {action:'enable'|'disable'} is the global switch, {action:'allow', packages:[...]} takes apps off the
 // list. Each answer says whether Samsung's list was brought in line; the switch is saved either way.
@@ -595,12 +859,15 @@ function handleKeepRemoved(req,res) {readJsonBody(req,res,function(p){
         .catch(function(e){debloatBusy=false;serveJson(res,{ok:false,error:e.message},503);});
 });}
 // Restore the TV: puts back what Vetro changed, then (separately) removes Vetro's data. See restore.js.
-var restoreTv = new (require('./restore.js').Restore)({
+// Built on first use (Restore the TV is a rare request).
+var restoreTvObject = null;
+function restoreTv() { return restoreTvObject || (restoreTvObject = new (require('./restore.js').Restore)(restoreOptions())); }
+function restoreOptions() { return {
     execute: agentExecute, inventory: inventory, invalidate: function(){invalidateInventory();},
-    wins: wins, keepRemoved: keepRemoved, hbbtv: hbbtv, dns: dnsFilter, homeOrder: homeOrder, dock: dock,
+    wins: wins, keepRemoved: keepRemoved, hbbtv: hbbtv, dns: dnsFilter, homeOrder: homeOrder, dock: dock, tuner: tuner,
     plugins: {list: function(){return plugins.list();}, setEnabled: function(id,on){return plugins.setEnabled(id,on);}},
     input: {active: function(){return inputPreference().enabled===true||inputObservers.length>0;},
-        off: function(){stopInput();inputPaused=false;saveInputPreference({enabled:false});}},
+        off: function(){stopInput('quick');inputPaused=false;saveInputPreference({enabled:false});}},
     mqtt: {enabled: function(){var c=require('./mqtt-bridge.js').readConfig();return !!c&&c.enabled!==false&&!!c.host;},
         off: function(){var m=require('./mqtt-bridge.js'),c=Object.assign({},m.readConfig(),{enabled:false});m.saveConfig(c);bridge.configure(c);}},
     // Pairing is not a Restore item since the republished 0.5.0: off is the default, and Restore must not switch off a protection the owner turned on.
@@ -608,7 +875,7 @@ var restoreTv = new (require('./restore.js').Restore)({
     afterHbbtv: function(){privacy.cached=null;},
     factoryTest: factoryTest,
     removeAuth: function(){try{fs.unlinkSync(auth.STORE_PATH);}catch(e){}}
-});
+}; }
 // #135: GET reads db/FactoryApp/Aging; POST {action:'reset'} writes 0 only when it reads exactly 1, then reads it again.
 function handleFactoryTest(req,res) {
     if(req.method==='GET')return factoryTest.read().then(function(d){serveJson(res,d);}).catch(function(e){serveJson(res,{error:e.message},503);});
@@ -618,12 +885,12 @@ function handleFactoryTest(req,res) {
     });
 }
 function handleRestore(req,res) {
-    if(req.method==='GET')return restoreTv.publicPlan().then(function(d){serveJson(res,d);}).catch(function(e){serveJson(res,{ok:false,error:e.message},503);});
+    if(req.method==='GET')return restoreTv().publicPlan().then(function(d){serveJson(res,d);}).catch(function(e){serveJson(res,{ok:false,error:e.message},503);});
     readJsonBody(req,res,function(p){
         if(p.action!=='run'&&p.action!=='erase')return serveJson(res,{error:'Invalid restore action'},400);
         if(debloatBusy)return serveJson(res,{ok:false,error:'App change already in progress'},409);debloatBusy=true;
-        if(p.action==='run')return restoreTv.run().then(function(d){debloatBusy=false;serveJson(res,d);}).catch(function(e){debloatBusy=false;serveJson(res,{ok:false,error:e.message},503);});
-        restoreTv.eraseData().then(function(d){debloatBusy=false;var finish=d.finish;delete d.finish;res.on('finish',finish);serveJson(res,d);})
+        if(p.action==='run')return restoreTv().run().then(function(d){debloatBusy=false;serveJson(res,d);}).catch(function(e){debloatBusy=false;serveJson(res,{ok:false,error:e.message},503);});
+        restoreTv().eraseData().then(function(d){debloatBusy=false;var finish=d.finish;delete d.finish;res.on('finish',finish);serveJson(res,d);})
             .catch(function(e){debloatBusy=false;serveJson(res,{ok:false,error:e.message},e.statusCode||503);});
     });
 }
@@ -653,17 +920,24 @@ function appIdOf(rawUrl) {
     if (!m) return undefined;
     try { return decodeURIComponent(m[1].replace(PLUS_RE, ' ')); } catch (e) { return undefined; }
 }
+// An app's icon does not change while the service runs (the copy kept here is never read again): a day in the browser, and an
+// ETag so that a browser that asks again is answered 304 without the image.
+function iconEtag(data){return '"'+require('crypto').createHash('sha1').update(data).digest('hex').slice(0,20)+'"';}
 function handleIcon(req,res) {
     var id=appIdOf(req.url);
     if (!id || !APP_ID_120_RE.test(id)) return serveJson(res,{error:'invalid appId'},400);
-    function send(icon){res.writeHead(200,{'content-type':icon.mime,'cache-control':'private, max-age=3600','X-Content-Type-Options':'nosniff'});res.end(icon.data);}
+    function send(icon){
+        var headers={'content-type':icon.mime,'cache-control':'private, max-age=86400','etag':icon.etag,'X-Content-Type-Options':'nosniff'};
+        if(req.headers&&req.headers['if-none-match']===icon.etag){res.writeHead(304,headers);return res.end();}
+        headers['content-length']=icon.data.length;res.writeHead(200,headers);res.end(icon.data);
+    }
     if(iconCache[id])return send(iconCache[id]);
     inventory(false).then(function(data){var row=data.apps.find(function(r){return r.appId===id;}), command=AppRegistry.iconCommand(row);
         if(!command)throw new Error('no readable icon');
         return agentExecute(command,10000).then(function(r){if(r.exit_code||r.timed_out)throw new Error('icon unavailable');var data=Buffer.from(r.stdout.replace(WHITESPACE_CHAR_RE,''),'base64');
             var png=data.slice(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10])), jpg=data[0]===255&&data[1]===216;
             if((!png&&!jpg)||data.length>262144)throw new Error('unsupported icon');
-            var icon={data:data,mime:png?'image/png':'image/jpeg'};if(Object.keys(iconCache).length<100)iconCache[id]=icon;send(icon);
+            var icon={data:data,mime:png?'image/png':'image/jpeg',etag:iconEtag(data)};if(Object.keys(iconCache).length<100)iconCache[id]=icon;send(icon);
         });
     }).catch(function(){serveJson(res,{error:'icon unavailable'},404);});
 }
@@ -691,12 +965,16 @@ function handleSettings(req, res) {
 }
 
 function handleRemap(req, res) {
-    if (req.method === 'GET') return serveJson(res, { rules: remapStore.rules, paired: !!remapStore.token });
+    // reserved: the keys Vetro UI holds (volume bar, number pad). Computed, never stored with the rules, and they come first.
+    if (req.method === 'GET') return serveJson(res, { rules: remapStore.rules, paired: !!remapStore.token, reserved: vetroUi.reservedKeys(dock.readState()),
+        interception: {auto: !!(remapStore.input && remapStore.input.auto && remapStore.input.enabled), problem: vetroUiInputProblem},
+        // Whether Vetro TV Tuner is on: a shortcut on one of its keys takes that key away from it (the page warns).
+        tuner: {enabled: (function () { try { return tuner.readState().enabled === true; } catch (e) { return false; } })()} });
     readJsonBody(req, res, function (parsed) {
         var rules;
         try { rules = remap.checkLaunchable(remap.validateRules(parsed.rules), packageOf); }
         catch (e) { return serveJson(res, { error: String(e.message || e) }, 400); }
-        stopInput(); inputPaused=false; inputFaultUntil=0;
+        stopInput('rules'); inputPaused=false; inputFaultUntil=0; inputRetryReset();
         remapStore.rules = rules;
         bridge.setTopics(rules.filter(function(r){return r.enabled&&r.trigger.type==='mqtt'}).map(function(r){return r.trigger.value}));
         serveJson(res, { ok: true, persisted: saveRemap(), rules: rules });
@@ -715,14 +993,45 @@ function runActions(actions, direct, dispatchGuard) {
         if(a.type==='launch'&&!remap.launchable(a.appId)){skipped.push('launch:not-an-app');return;}
         // #135: a rule saved before this check still loads, but never opens a factory, hotel or shop app.
         if(a.type==='launch'&&!direct&&remap.ruleRisk(a.appId,packageOf)){skipped.push('launch:factory-app');return;}
-        if(a.type==='launch')command='/usr/bin/app_launcher -s '+a.appId;
-        else if(a.type==='key'){var key=control.nativeKey(a.key);command=key&&control.injectCommand(key);if(!command)throw new Error('unsupported native key: '+a.key);}
+        // #200: an app that is only an HbbTV link (SVT Play) opens the way Samsung's Home opens it; any other app by its id.
+        if(a.type==='launch')command=hbbtvLink.launchCommand(a.appId);
+        // A named key goes to the window with the focus; with Vetro TV Tuner on screen that is the tuner's, so its keys go to it (key-routing.js).
+        else if(a.type==='key'){var key=control.nativeKey(a.key);command=key&&keyRouting.keyCommand(key,control.injectCommand(key));if(!command)throw new Error('unsupported native key: '+a.key);}
         else {skipped.push(a.type);return;}
         return agentExecute(command,10000,dispatchGuard).then(function(r){if(r.exit_code||r.timed_out)throw new Error(r.stderr||'native action failed');sent++;});
     });},Promise.resolve()).then(function(){return {ok:true,sent:sent,skipped:skipped,transport:mqttSent?(mqttSent===sent?'mqtt':'mixed'):'native'};});
 }
 var actionQueue=Promise.resolve(), pendingActions=0, inputError=null;
+var volumeKeys=require('./volume-keys.js');
+// The glass volume pill is on when the dock (or the custom launcher) runs and the user switched it on.
+function keyFlags(){var s=dock.readState(),live=s.enabled===true||!!s.customApp;return {volume:live&&s.volumePill===true,pad:live&&s.numberPad===true};}
+var keyRouting=require('./key-routing.js');
+// volumeRoute (diagnostics): which way the last Vol / 123 key went to the launcher (its FIFO opened by the service, or written by the root
+// agent once the service was refused), or back to Samsung, with the service's errno for its own open. In memory only.
+var volumeRoute=null;
+var volumeRepeat=volumeKeys.repeater({reinject:function(key){var c=volumeKeys.reinjectCommand(key);return c?agentExecute(c,5000):Promise.resolve();},
+    relay:function(word){var c=keyRouting.dockWordCommand(word);return c?agentExecute(c,5000).then(function(r){if(!r||r.exit_code||r.timed_out)throw new Error('launcher not reading');}):Promise.reject(new Error('bad word'));},
+    route:function(how,errno){volumeRoute={route:how,errno:errno,at:Date.now()};}});
+// Every stop of the bridge (asked for, or the helper went away on its own) ends a volume repeat: its release will never come.
+// Once a helper holds the remote, its forwarding node is new: the launcher and the tuner are told to watch it now, not at their next 3 s scan.
+// bridgeTiming (GET /status remoteBridge): how long after the root agent connected the remote bridge was listening again,
+// for the first connect of this run and for the last one (a wake). In memory only.
+var bridgeTiming={first:null,last:null}, bridgeWait=null;
+// inputHistory (diagnostics): the last turns of the remote bridge in this run, with when they happened: a helper connected or lost, a
+// restore tried or failed, a stop and who asked, the root agent coming and going, a request from the Remapper. In memory only; the
+// report keeps fixed words (diagnostic-report.js). A "connected" followed seconds later by a "lost" is a helper that does not stay.
+var inputHistory=[];
+function inputNote(kind,why){inputHistory.push({at:Date.now(),kind:kind,why:why==null?null:String(why)});if(inputHistory.length>24)inputHistory.shift();}
+var physicalHooks={onStop:function(lost){volumeRepeat.stop();if(lost)inputNote(lost.connected?'lost':'ended',lost.reason);},
+    onConnect:function(status){
+        inputNote('connected',status&&status.policy&&status.policy.mode);
+        if(bridgeWait&&status&&status.policy&&status.policy.mode==='filter'){bridgeWait.bridgeMs=Date.now()-bridgeWait.agentAt;bridgeTiming[bridgeTiming.first?'last':'first']=bridgeWait;bridgeWait=null;}
+        if(status&&status.policy&&status.policy.mode==='filter')agentExecute(keyRouting.rescanCommand(),5000).catch(function(){});}};
 var physical=new PhysicalInput(agentExecute,function(event){
+    if(inputLifecycleActive&&volumeKeys.wants(event,keyFlags())){
+        volumeRepeat.event(event);
+        return;
+    }
     if(!inputLifecycleActive||event.action!=='down'||event.decision!=='blocked')return;
     var actions=remap.resolve(remapStore.rules,'physical',String(event.code));
     if(pendingActions>=8){pauseInputFault('input action queue exceeded');return;}
@@ -730,7 +1039,7 @@ var physical=new PhysicalInput(agentExecute,function(event){
     var generation=inputGeneration;
     function current(){return inputLifecycleActive&&generation===inputGeneration;}
     actionQueue=actionQueue.then(function(){return current()?runActions(actions,false,current):null;}).catch(function(e){if(current())pauseInputFault(e.message);}).finally(function(){pendingActions--;});
-});
+},physicalHooks);
 var inputObservers=[], inputPaused=false, inputRestoring=false;
 // inputPaused is the user's own pause (listening mode) and lasts until they act. A fault is different: a rule's action failed
 // (broker down, TV busy, agent reconnecting), so the keys are given back to the TV at once, but only for a while. Without
@@ -739,10 +1048,17 @@ var INPUT_FAULT_PAUSE_MS=60000, inputFaultUntil=0;
 // Listening pauses interception until the user stops it. A page that was closed or navigated away while listening never says so:
 // when nothing has asked about the input for this long, the pause is dropped and the saved shortcuts work again.
 var INPUT_LISTEN_IDLE_MS=300000, inputSeenAt=Date.now();
+// A saved interception that cannot be restored (the remote is not there, the helper never connects) was tried every 5 s for
+// ever: a read of the input devices each time, and a dotnet helper started each time the remote was found. After a minute of
+// failed tries it is tried every 30 s. Anything that can change the answer goes back to the 5 s pace at once: the root agent
+// connecting, a request to /input, a saved Remapper, Vetro UI's keys changing, a success.
+var INPUT_RETRY_FAST=12, INPUT_RETRY_SLOW_MS=30000, inputFailures=0, inputRetryAt=0;
+function inputRetryReset(){inputFailures=0;inputRetryAt=0;}
+function inputRetryFailed(){if(++inputFailures>=INPUT_RETRY_FAST)inputRetryAt=Date.now()+INPUT_RETRY_SLOW_MS;}
 function pauseInputFault(message){inputError=message;inputFaultUntil=Date.now()+INPUT_FAULT_PAUSE_MS;physical.stop();}
 var inputLifecycleActive=true, inputGeneration=0;
 function startInputLifecycle(){inputLifecycleActive=true;}
-function stopInputLifecycle(){inputLifecycleActive=false;stopInput();}
+function stopInputLifecycle(){inputLifecycleActive=false;stopInput('lifecycle');}
 if(typeof module!=='undefined'){
     module.exports.onStart=startInputLifecycle;module.exports.onRequest=startInputLifecycle;
     module.exports.onStop=stopInputLifecycle;module.exports.onExit=stopInputLifecycle;
@@ -752,12 +1068,43 @@ function saveInputPreference(preference){
     var previous=remapStore.input;remapStore.input=preference;
     if(!saveRemap()){remapStore.input=previous;throw new Error('Remote setting could not be saved to disk');}
 }
-function inputTokens(){return remapStore.rules.filter(function(r){return r.enabled&&r.trigger.type==='physical';}).map(function(r){return r.trigger.value;});}
+function inputTokens(){return volumeKeys.withTokens(remapStore.rules.filter(function(r){return r.enabled&&r.trigger.type==='physical';}).map(function(r){return r.trigger.value;}),keyFlags());}
+var vetroUi=require('./vetro-ui.js'),vetroUiInputProblem=null;
+// Vetro UI's keys need the remote interception. It is switched on here only when one of its parts is switched on (or the launcher
+// that draws them comes on), never by the 5 s restore loop: a user who turns the interception off keeps it off. The remote is
+// chosen as restoreInput does (the one remote that reports keys); with more than one candidate nothing is guessed. When the
+// parts go off again, an interception Vetro UI started itself is turned off, unless shortcuts of the user's own still need it.
+function vetroUiInput(){
+    inputRetryReset();
+    var flags=keyFlags(),wants=flags.volume||flags.pad,pref=remapStore.input||{};
+    if(!wants){
+        vetroUiInputProblem=null;
+        var own=remapStore.rules.some(function(r){return r.enabled&&r.trigger.type==='physical';});
+        if(pref.enabled&&pref.auto&&!own){try{saveInputPreference({enabled:false});}catch(e){}stopInput('auto-off');}
+        return Promise.resolve(false);
+    }
+    if(inputPreference().enabled)return Promise.resolve(true);
+    if(!inputLifecycleActive||inputPaused||!platform.status().agent.connected){vetroUiInputProblem='The remote interception could not be turned on now (the TV is not connected, or the Remapper is listening). Turn it on in the Remapper.';return Promise.resolve(false);}
+    return physical.inventory().then(function(list){
+        var candidates=list.filter(function(d){return d.selectable;});
+        var keyed=candidates.filter(function(d){try{return KEY_CAPABILITY_RE.test(require('fs').readFileSync('/sys/class/input/'+d.node.split('/').pop()+'/device/capabilities/key','utf8'));}catch(e){return false;}});
+        var device=candidates.length===1?candidates[0]:keyed.length===1?keyed[0]:null;
+        if(!device)throw new Error(candidates.length?'More than one remote was found: choose yours in the Remapper and turn the interception on there.':'No remote was found to listen to.');
+        var still=keyFlags();if(!still.volume&&!still.pad)return null;   // switched off again while the remotes were being listed
+        stopInput('vetro-ui');
+        return physical.start(device.node,'filter',inputTokens(),list);
+    }).then(function(status){
+        if(!status)return false;
+        saveInputPreference({enabled:true,device:status.policy.device,node:status.policy.node,auto:true});
+        inputPaused=false;vetroUiInputProblem=null;return true;
+    }).catch(function(e){vetroUiInputProblem=e.message;return false;});
+}
 function restoreInput(){
-    if(inputPaused&&Date.now()-inputSeenAt>INPUT_LISTEN_IDLE_MS){stopInput();inputPaused=false;}
+    if(!serviceOwner)return;    // a second copy of the service never touches the remote (see becomeOwner)
+    if(inputPaused&&Date.now()-inputSeenAt>INPUT_LISTEN_IDLE_MS){stopInput('listen-idle');inputPaused=false;}
     var preference=inputPreference(),generation=inputGeneration;
-    if(!inputLifecycleActive||!preference.enabled||inputPaused||Date.now()<inputFaultUntil||inputRestoring||physical.status().policy.connected||!platform.status().agent.connected||!inputTokens().length)return;
-    inputRestoring=true;
+    if(!inputLifecycleActive||!preference.enabled||inputPaused||Date.now()<inputFaultUntil||Date.now()<inputRetryAt||inputRestoring||physical.status().policy.connected||!platform.status().agent.connected||!inputTokens().length)return;
+    inputRestoring=true;inputNote('restore');
     physical.inventory().then(function(list){
         if(!inputLifecycleActive||generation!==inputGeneration||inputPaused||Date.now()<inputFaultUntil||inputPreference()!==preference)return;
         var candidates=list.filter(function(d){return d.selectable&&d.name===preference.device;});
@@ -765,10 +1112,10 @@ function restoreInput(){
         // Several interfaces share the name: the one that advertises keys, and if more than one does, the saved node among them.
         var device=candidates.length===1?candidates[0]:keyed.length===1?keyed[0]:keyed.find(function(d){return d.node===preference.node;})||null;
         if(!device)throw new Error('Saved physical remote is unavailable');
-        return physical.start(device.node,'filter',inputTokens());
-    }).then(function(){if(generation===inputGeneration)inputError=null;}).catch(function(e){if(generation===inputGeneration)inputError=e.message;}).finally(function(){if(generation===inputGeneration)inputRestoring=false;});
+        return physical.start(device.node,'filter',inputTokens(),list);
+    }).then(function(){if(generation===inputGeneration){inputError=null;inputRetryReset();}}).catch(function(e){inputNote('failed',e.message);if(generation===inputGeneration){inputError=e.message;inputRetryFailed();}}).finally(function(){if(generation===inputGeneration)inputRestoring=false;});
 }
-function stopInput(){++inputGeneration;inputRestoring=false;inputObservers.forEach(function(b){b.stop();});inputObservers=[];physical.stop();}
+function stopInput(why){inputNote('stop',why||'other');volumeRepeat.stop();++inputGeneration;inputRestoring=false;inputObservers.forEach(function(b){b.stop();});inputObservers=[];physical.stop();}
 function inputSnapshot(){
     if(!inputObservers.length)return Object.assign({},physical.status(),{preference:inputPreference()});
     var events=[],connected=false,errors=[];
@@ -779,18 +1126,18 @@ function inputSnapshot(){
 // A newer request (or a remap save, or switching interception off) has taken over since this one began.
 function superseded(){var e=new Error('Replaced by a newer input request');e.superseded=true;return e;}
 function handleInput(req,res){
-    inputSeenAt=Date.now();
+    inputSeenAt=Date.now();inputRetryReset();
     if(req.method==='GET')return physical.inventory().then(function(list){serveJson(res,{devices:list,status:inputSnapshot(),error:inputError});}).catch(function(e){serveJson(res,{devices:[],status:inputSnapshot(),error:e.message});});
     readJsonBody(req,res,function(p){
         if(!inputLifecycleActive)return serveJson(res,{error:'Service input is stopped'},503);
         var tokens=inputTokens();
         inputError=null;inputFaultUntil=0;
-        if(p.mode==='off'){try{saveInputPreference({enabled:false});}catch(e){return serveJson(res,{ok:false,error:e.message},503);}inputPaused=false;stopInput();return serveJson(res,{ok:true,persisted:true,status:inputSnapshot()});}
+        if(p.mode==='off'){try{saveInputPreference({enabled:false});}catch(e){return serveJson(res,{ok:false,error:e.message},503);}inputPaused=false;stopInput('request');return serveJson(res,{ok:true,persisted:true,status:inputSnapshot()});}
         if(p.mode!=='observe'&&p.mode!=='filter')return serveJson(res,{error:'invalid input mode'},400);
         if(p.mode==='filter'&&p.device==='auto')return serveJson(res,{error:'select the detected node before intercepting'},400);
-        inputPaused=true;
+        inputPaused=true;inputNote('request',p.mode);
         if(p.mode==='observe'&&p.device==='auto'){
-            stopInput();var observerGeneration=inputGeneration;return physical.inventory().then(function(list){
+            stopInput('request');var observerGeneration=inputGeneration;return physical.inventory().then(function(list){
                 if(!inputLifecycleActive)throw new Error('Input request cancelled');
                 if(observerGeneration!==inputGeneration)throw superseded();
                 var candidates=list.filter(function(d){return d.selectable;});
@@ -798,10 +1145,10 @@ function handleInput(req,res){
                 inputObservers=candidates.map(function(){return new PhysicalInput(agentExecute,function(){});});
                 return Promise.all(candidates.map(function(d,i){return inputObservers[i].start(d.node,'observe',[]).catch(function(e){return {error:e.message};});}));
             }).then(function(){if(observerGeneration!==inputGeneration)throw superseded();var s=inputSnapshot();if(!s.policy.connected)throw new Error(s.error||'input helpers unavailable');serveJson(res,{ok:true,status:s});})
-            .catch(function(e){if(inputLifecycleActive&&observerGeneration!==inputGeneration)e=superseded();else stopInput();serveJson(res,{ok:false,error:e.message},e.superseded?409:503);});
+            .catch(function(e){if(inputLifecycleActive&&observerGeneration!==inputGeneration)e=superseded();else stopInput('request');serveJson(res,{ok:false,error:e.message},e.superseded?409:503);});
         }
         if(p.device==='auto')return serveJson(res,{error:'select the detected node before intercepting'},400);
-        stopInput();var requestGeneration=inputGeneration;
+        stopInput('request');var requestGeneration=inputGeneration;
         physical.start(p.device,p.mode,tokens).then(function(status){
             if(!inputLifecycleActive)throw new Error('Input request cancelled');
             if(requestGeneration!==inputGeneration)throw superseded();
@@ -810,6 +1157,9 @@ function handleInput(req,res){
         }).catch(function(e){
             // physical.start fails with its own "cancelled" error when a newer request stopped it: that is the same case.
             if(inputLifecycleActive&&requestGeneration!==inputGeneration)e=superseded();else physical.stop();
+            // A failed "Intercept" or listen left the restore loop paused (no error, nothing tried) until the Remapper had been closed for 5
+            // minutes: the saved choice, if there is one, is tried again by the 5 s loop, and the reason is kept for the diagnostics.
+            if(!e.superseded){inputNote('failed',e.message);inputPaused=false;if(p.mode==='filter')inputError=e.message;}
             serveJson(res,{ok:false,error:e.message},e.superseded?409:503);
         });
     });
@@ -819,6 +1169,15 @@ function handleRemapRun(req,res){readJsonBody(req,res,function(p){
     runActions(remap.resolve(remapStore.rules,p.type,p.value,p.payload)).then(function(r){serveJson(res,r);}).catch(function(e){serveJson(res,{ok:false,error:e.message},503);});
 });}
 
+// POST /screen/control: one tile of the TV screen. The sign-in gate has already decided who may get here (the TV app itself,
+// or a paired browser); this route is not one of the few the TV page may use from an address that is not the TV.
+function handleScreenControl(req, res) {
+    readJsonBody(req, res, function (p) {
+        screenControls().act(p).then(function (d) { serveJson(res, d); }, function (e) {
+            serveJson(res, {ok: false, error: e.message}, e.statusCode || 503);
+        });
+    });
+}
 var auth = require('./auth.js');
 // The Vetro app polls /auth/pending and shows the code; open it so the code is on screen.
 // A request that comes while the root agent is still connecting (a minute or so after boot) used to lose its launch
@@ -833,6 +1192,7 @@ function showPairingCode(attempt) {
 }
 var server = http.createServer(function (req, res) {
     var url = (req.url || '/').split('?')[0];
+    res.vetroGzip = GZIP_RE.test(String(req.headers && req.headers['accept-encoding'] || ''));
     // A sandboxed plugin page carries no sign-in cookie; its URL holds a session token the plugin host checks.
     if (PLUGIN_SESSION_API_RE.test(url)) return plugins.handle(req, res, url, serveJson, readBody);
     if (auth.gate(req, res, url, {open: platform.status().mode === 'app-only', onPair: function () { showPairingCode(0); }})) return;
@@ -844,7 +1204,7 @@ var server = http.createServer(function (req, res) {
     // Packaged widget documents use an opaque (null) origin, or on some runtimes a non-web scheme. Allow
     // only its probe/status exchange, including the JSON POST preflight. The sign-in gate already decided
     // who may get here.
-    if ((url === '/probe' || url === '/status' || url === '/screen') && req.headers && auth.pageOrigin(req.headers.origin)) {
+    if ((url === '/probe' || url === '/status' || url === '/screen' || url === '/screen/controls' || url === '/screen/control') && req.headers && auth.pageOrigin(req.headers.origin)) {
         res.setHeader('Access-Control-Allow-Origin', req.headers.origin);
         res.setHeader('Vary', 'Origin');
         if (req.method === 'OPTIONS') {
@@ -867,11 +1227,13 @@ var server = http.createServer(function (req, res) {
         if (url === '/factory-test') return handleFactoryTest(req,res);
         if (url === '/hbbtv') return readJsonBody(req,res,function(p){hbbtv.change(p.off,p.expected).then(function(d){privacy.cached=null;try{wins.remember('hbbtv',d.off);}catch(e){}serveJson(res,d);}).catch(function(e){serveJson(res,{error:e.message},409);});});
         if (url === '/dock') return plugins.dispatch('launcher', req, res, 'action', serveJson);
-        if (url === '/home-order') return readJsonBody(req,res,function(p){var t=p.action==='restore'?homeOrder.restore():homeOrder.write(p.entries);t.then(function(d){serveJson(res,d)}).catch(function(e){serveJson(res,{error:e.message},409)});});
+        if (url === '/tuner') return plugins.dispatch('tuner', req, res, 'action', serveJson);
+        if (url === '/home-order') return readJsonBody(req,res,function(p){var t=p.action==='restore'?homeOrder.restore():p.action==='clean'?homeCleanup.sweep(agentExecute):homeOrder.write(p.entries);t.then(function(d){serveJson(res,d)}).catch(function(e){serveJson(res,{error:e.message},409)});});
         if (url === '/tv-menu') return readJsonBody(req,res,function(p){menuSettings.write(p.id,p.value).then(function(d){serveJson(res,d)}).catch(function(e){serveJson(res,{ok:false,error:e.message},409)});});
         if (url === '/tv-settings') return readJsonBody(req,res,function(p){tvSettings.write(p).then(function(d){serveJson(res,d)}).catch(function(e){serveJson(res,{ok:false,error:e.message},409)});});
         if (url === '/components/action') return handleComponentAction(req,res);
         if (url === '/quick') return handleQuick(req,res);
+        if (url === '/quick/uninstall') return handleQuickUninstall(req,res);
         if (url === '/leftovers') return handleLeftovers(req,res);
         if (url === '/mqtt') return handleMqttConfig(req, res);
         if (url === '/control') return handleControl(req, res);
@@ -879,6 +1241,7 @@ var server = http.createServer(function (req, res) {
         if (url === '/update/apply' || url === '/update/check') return handleUpdate(req, res, url === '/update/apply');
         if (url === '/update/rollback') return updater.rollback().then(function (d) { serveJson(res, d); }, function (e) { serveJson(res, {ok: false, error: e.message}, 409); });
         if (url === '/probe') return handleProbe(req, res);
+        if (url === '/screen/control') return handleScreenControl(req, res);
         if (url === '/remap') return handleRemap(req, res);
         if (url === '/remap/run') return handleRemapRun(req, res);
         return serveJson(res, { error: 'POST not supported here' }, 405);
@@ -886,12 +1249,13 @@ var server = http.createServer(function (req, res) {
     if (url === '/dns') return dnsFilter.status().then(function(d){serveJson(res,d)}).catch(function(e){serveJson(res,{error:e.message},503)});
     if (url === '/dock/icon') return plugins.dispatch('launcher', req, res, 'icon', serveJson);
     if (url === '/dock') return plugins.dispatch('launcher', req, res, 'status', serveJson);
+    if (url === '/tuner') return plugins.dispatch('tuner', req, res, 'status', serveJson);
     if (url === '/home-order') return homeOrder.read().then(function(d){serveJson(res,d)}).catch(function(e){serveJson(res,{error:e.message},503)});
     if (url === '/restore') return handleRestore(req,res);
     if (url === '/pairing-mode') return handlePairingMode(req,res);
     if (url === '/sdb-access') return handleSdbAccess(req,res);
     if (url === '/keep-removed') return serveJson(res, keepRemoved.summary());
-    if (url === '/wins') return wins.read().then(function(d){serveJson(res,d)}).catch(function(e){serveJson(res,{error:e.message},503)});
+    if (url === '/wins') return wins.read().then(function(d){return keyGuides.read().then(function(k){d.wins.keyguides=k;return d;},function(){d.wins.keyguides={status:'unknown'};return d;});}).then(function(d){serveJson(res,d)}).catch(function(e){serveJson(res,{error:e.message},503)});
     if (url === '/icon.png') return serveIcon(res);
     if (url === '/factory-test') return handleFactoryTest(req,res);
     if (url === '/hbbtv') return hbbtv.read().then(function(d){serveJson(res,d);}).catch(function(e){serveJson(res,{error:e.message},503);});
@@ -902,8 +1266,9 @@ var server = http.createServer(function (req, res) {
     if (url === '/runtime-evidence') return serveJson(res, require('./runtime-evidence.js').collect());
     if (url === '/telemetry') return serveJson(res, readTelemetry());
     if (url === '/leftovers') return handleLeftovers(req,res);
-    if (url === '/status') return serveJson(res, Object.assign({}, platform.status(), {app: buildInfo}));
+    if (url === '/status') return serveJson(res, Object.assign({}, platform.status(), {app: buildInfo, rootCommands: commandStats(Date.now()), remoteBridge: bridgeTiming}));
     if (url === '/update') return serveJson(res, updater.status());
+    if (url === '/screen/controls') return screenControls().read(auth.tvApp(req) && auth.hostOk(req)).then(function(d){serveJson(res,d)}).catch(function(e){serveJson(res,{error:e.message},503)});
     if (url === '/screen') return screenSummary().then(function(d){serveJson(res,d)}).catch(function(e){serveJson(res,{error:e.message},503)});
     if (url === '/exec') return handleExecStatus(res);
     if (url === '/debloat') return handleDebloatList(req, res);
@@ -913,11 +1278,12 @@ var server = http.createServer(function (req, res) {
     if (url === '/input') return handleInput(req,res);
     if (url === '/apps/icon') return handleIcon(req,res);
     if (url === '/apps') return handleApps(req, res);
+    if (url === '/quick/uninstall') return handleQuickUninstall(req,res);
     if (url === '/blocklist') return handleBlocklist(req, res);
     if (url === '/tv-settings') return Promise.all([tvSettings.read().catch(function(e){return {items:[],error:e.message}}),dnsFilter.status().catch(function(e){return {error:e.message}}),tvSettings.readNetwork().catch(function(e){return {configurationError:e.message,services:[],interfaces:[],writable:false}})]).then(function(d){serveJson(res,{ts:Date.now(),items:d[0].items,scope:d[0].scope,error:d[0].error||null,network:Object.assign({},d[1],d[2]),device:settings.sanitize(state.settings)});});
     if (url === '/settings') return handleSettings(req, res);
     if (url === '/remap') return handleRemap(req, res);
-    if (url === '/' || url === '/index.html') return serveHtml(res, auth.decorate(dashboardHtml()));
+    if (url === '/' || url === '/index.html') return serveDashboard(req, res);
     serveJson(res, { error: 'not found' }, 404);
 });
 // An older Vetro that outlived an upgrade (0.3.x) can still hold the port and keep answering with its old version, and
@@ -927,11 +1293,34 @@ var server = http.createServer(function (req, res) {
 // it comes up by itself once the port is free.
 var LISTEN_RETRY_MS = Number(process.env.VETRO_LISTEN_RETRY_MS) || 15000;
 var staleAttempts = 0;
+// The MQTT bridge belongs to the copy of the service that answers on the port. A second copy of the same Vetro (it cannot
+// listen, and since the retry above it no longer ends) used to connect to the broker too, with the same client id: the two
+// took the session from each other every 10 s (#199, #213). The bridge now starts when this copy listens, or when the
+// port is held by something that is not a Vetro (then this is the only copy, and MQTT must not wait for the port).
+var bridgeStarted = false;
+function startBridge() {
+    if (bridgeStarted) return;
+    bridgeStarted = true;
+    bridge.start();
+}
+// The same goes for everything that acts on the TV: the root agent, the launcher's and the tuner's supervision and the remote
+// interception belong to the copy that owns the port. A second copy that ran them too got its own root agent and, worse, ended
+// the other copy's remote helper at every 5 s restore (each start ends any other filter helper), so the interception dropped
+// every few seconds (an S95F, 2026-11-19). A copy owns the port when it listens, or when the holder answers and is not a Vetro.
+var serviceOwner = false;
+function becomeOwner() {
+    if (serviceOwner) return;
+    serviceOwner = true;
+    startBridge();
+    platform.start();
+    plugins.start();
+}
 function startListening() {
     server.listen(PORT, process.env.VETRO_BIND_HOST || '0.0.0.0');
 }
 server.on('listening', function () {
     console.log('VETRO listening on ' + PORT);
+    becomeOwner();
 });
 server.on('error', function (e) {
     if (e && (e.code === 'EADDRINUSE' || e.code === 'EACCES')) {
@@ -939,14 +1328,17 @@ server.on('error', function (e) {
             console.error('VETRO cannot listen on port ' + PORT + ' (' + e.code + '): another app holds it. Trying again in ' + Math.round(LISTEN_RETRY_MS / 1000) + ' s. Build with VETRO_PORT=<port> to use another one.');
             setTimeout(startListening, LISTEN_RETRY_MS);
         };
-        if (e.code !== 'EADDRINUSE' || staleAttempts >= 3) return retry();
+        if (e.code !== 'EADDRINUSE') { becomeOwner(); return retry(); }
+        if (staleAttempts >= 3) return retry();
         staleAttempts++;
         require('./stale-service.js').endOlderService(PORT, buildInfo.version, {host: process.env.VETRO_STALE_PROBE_HOST || '127.0.0.1'}).then(function (r) {
             if (r.ended) {
                 console.log('VETRO ended the older Vetro ' + r.version + ' (pid ' + r.pid + ') that still held port ' + PORT + (r.forced ? ' (forced)' : ''));
                 return setTimeout(startListening, 300);
             }
-            if (r.reason !== 'not-vetro') console.error('VETRO found Vetro ' + (r.version || '?') + ' on port ' + PORT + ' and did not end it: ' + r.reason);
+            if (r.reason === 'not-vetro') becomeOwner();
+            else if (r.reason === 'no-answer') console.error('VETRO: nothing answers on port ' + PORT + ' yet; this copy waits and touches nothing on the TV.');
+            else console.error('VETRO found Vetro ' + (r.version || '?') + ' on port ' + PORT + ' and did not end it: ' + r.reason + '. This copy stays idle (no root agent, launcher or remote) while the other one answers.');
             retry();
         }).catch(retry);
         return;
@@ -955,7 +1347,18 @@ server.on('error', function (e) {
 });
 startListening();
 
-platform.start();
+// The remote bridge comes first when the root agent connects (after a boot, and at every wake: the TV stops sdbd at standby,
+// which ends the agent and the bridge's helper): restoreInput runs at once, so its device read is the first command in the
+// queue, ahead of the launcher's and the tuner's checks (their plugins look at the agent every 2 s), instead of waiting for
+// its next 5 s round. The app-only adapter has no onAgent.
+if(typeof platform.onAgent==='function')platform.onAgent(function(up){
+    inputNote('agent',up?'up':'down');
+    if(!up){bridgeWait=null;return;}
+    bridgeWait={agentAt:Date.now(),bridgeMs:null};
+    inputRetryReset();
+    try{restoreInput();}catch(e){/* the 5 s round tries again */}
+});
+// platform.start() and plugins.start() run in becomeOwner(), once this copy owns the port.
 // The launcher is started again after a boot or a crash while its switch is on: that supervision is the launcher plugin's (plugin-launcher.js).
 // Retry after boot and helper disconnects, including late adapter availability.
 var inputRestoreTimer=setInterval(restoreInput,5000);if(inputRestoreTimer.unref)inputRestoreTimer.unref();
@@ -970,33 +1373,45 @@ var bridge = new MqttBridge(readTelemetry,function(m){
  actionQueue=actionQueue.then(function(){return runActions(actions);}).then(function(r){bridge.event('trigger','Rule executed: '+m.topic+' · '+r.sent+' action(s)');}).catch(function(e){bridge.event('error','MQTT rule: '+e.message);}).finally(function(){pendingActions--;});
 });
 bridge.setTopics(remapStore.rules.filter(function(r){return r.enabled&&r.trigger.type==='mqtt'}).map(function(r){return r.trigger.value}));
-bridge.start();
+// bridge.start() is called by startBridge(), once this copy of the service is the one that answers (see the listen handler).
 // Self-update (docs/UPDATING.md): a bundle signed with the Vetro release key replaces the package files in place.
 // Nothing is checked or downloaded here; the dashboard fetches the bundle in the browser and sends it to /update/apply.
 var updater = new Updater({publicKey: require('./update-key.js'), installDir: path.resolve(__dirname, '..'),
-    workDir: process.env.VETRO_UPDATE_DIR || '/opt/usr/home/owner/share/vetro-update', buildInfo: buildInfo, execute: agentExecute, dockStopCommand: dock.stopLines(),
+    workDir: process.env.VETRO_UPDATE_DIR || '/opt/usr/home/owner/share/vetro-update', buildInfo: buildInfo, execute: agentExecute, dockStopCommand: dock.stopLines() + '\n' + tuner.stopLines(),
     source: 'https://raw.githubusercontent.com/GiuseppeFiorillo/vetro-tizen4/updates/'});
 // Once the root agent has connected, a freshly updated version restarts the launcher if the update changed its files,
 // then tells the watchdog it is up (otherwise the old version comes back). The dock is a separate process: a service
 // restart alone leaves it running the old binary.
-function restartDockAfterUpdate() {
-    var launcher = dock.readState();
-    if (!launcher.enabled && !launcher.customApp) return Promise.resolve('off');
-    var tries = 0;
-    function attempt() {
-        return dock.refresh().then(function () { return 'restarted'; }, function (e) {
-            if (++tries >= 4) throw e;
-            return new Promise(function (r) { setTimeout(r, 4000); }).then(attempt);
-        });
+function restartNativeAfterUpdate() {
+    // Each try that fails ends with a kill of the process it started, so a slow first start with the new files must not
+    // be tried blindly four times: a part that is found running after a failed try is up, and a try refused because
+    // another change is in progress (the supervision restarting the same part) only waits, it does not count.
+    function retry(part, run) {
+        var tries = 0, waits = 0;
+        function again() { return new Promise(function (r) { setTimeout(r, 4000); }).then(attempt); }
+        function attempt() {
+            return run().then(function () { return 'restarted'; }, function (e) {
+                if (/in progress/.test(e && e.message || '') && ++waits <= 30) return again();
+                return part.runningNow().then(function (p) { return !!p.running; }, function () { return false; }).then(function (running) {
+                    if (running) return 'restarted';
+                    if (++tries >= 4) throw e;
+                    return again();
+                });
+            });
+        }
+        return attempt();
     }
-    return attempt();
+    var launcher = dock.readState(), parts = [];
+    if (launcher.enabled || launcher.customApp) parts.push(retry(dock, function () { return dock.restartAfterUpdate(); }));
+    if (tuner.readState().enabled) parts.push(retry(tuner, function () { return tuner.restartAfterUpdate(); }));
+    return Promise.all(parts).then(function (how) { return how.length ? 'restarted' : 'off'; });
 }
 var updateConfirmAttempts = 0;
 var updateConfirmTimer = setInterval(function () {
     if (++updateConfirmAttempts > 60) { clearInterval(updateConfirmTimer); return; }
     if (!platform.status().agent.connected) return;
     clearInterval(updateConfirmTimer);
-    updater.finish(restartDockAfterUpdate).catch(function () { /* the watchdog decides */ });
+    updater.finish(restartNativeAfterUpdate).catch(function () { /* the watchdog decides */ });
 }, 5000);
 if (updateConfirmTimer.unref) updateConfirmTimer.unref();
 // Third-party plugins (see docs/plugins.md): loaded from the plugin folder, off until switched on, guarded, safe mode after a failed boot.
@@ -1006,7 +1421,8 @@ var plugins = new PluginHost({registryKey: require('./plugin-key.js'), developer
     registry: process.env.VETRO_PLUGIN_REGISTRY || 'https://raw.githubusercontent.com/andrearicci93/vetro-plugins/catalog/index.json',
     services: {agentConnected: function () { return platform.status().agent.connected; }, json: serveJson, readJson: readJsonBody}});
 plugins.register(require('./plugin-launcher.js').definition(dock));
-plugins.start();
+dock.setShards(plugins);       // plugins that take over an app's launcher tile (manifest "intercepts")
+plugins.register(require('./plugin-tuner.js').definition(tuner));
 // A plugin's timer or socket callback throws outside every guard the host has. Without this the whole service ended with it
 // (and, past the first minute after a boot, came back with the plugin enabled and ended again). Plugin code is stopped and the
 // service goes on; an error from anywhere else is printed and ends the process, as it always did.
@@ -1036,22 +1452,32 @@ var tvStateTimer=setInterval(function(){
  tvState.read().then(function(d){bridge.publishTvState(d);}).catch(function(){bridge.publishTvState(null);});
 },10000);if(tvStateTimer.unref)tvStateTimer.unref();
 
+// Boot tasks below also wait for the launcher (dock.bootSettled(): off, up, or 60 s after the agent connected): the root agent runs
+// one command at a time, so their long commands would otherwise queue in front of the dock's start.
 // Restore only an explicitly saved local domain filter once the adapter is ready.
-var dnsRestoreAttempts=0;var dnsRestoreTimer=setInterval(function(){if(++dnsRestoreAttempts>BOOT_RETRIES){clearInterval(dnsRestoreTimer);return}if(platform.status().agent.connected){dnsFilter.restore().then(function(s){if(!s.enabled||s.applied)clearInterval(dnsRestoreTimer)}).catch(function(){})}},5000);if(dnsRestoreTimer.unref)dnsRestoreTimer.unref();
+// A TV where the filter was never switched on has no filter folder (Filter.neverUsed: only a missing folder counts, not one the
+// service cannot look into): its status read (a root command of about ten processes) is skipped at every boot.
+var dnsRestoreAttempts=0;var dnsRestoreTimer=setInterval(function(){if(++dnsRestoreAttempts>BOOT_RETRIES){clearInterval(dnsRestoreTimer);return}if(typeof dnsFilter.neverUsed==='function'&&dnsFilter.neverUsed()){clearInterval(dnsRestoreTimer);return}if(platform.status().agent.connected&&dock.bootSettled()){dnsFilter.restore().then(function(s){if(!s.enabled||s.applied)clearInterval(dnsRestoreTimer)}).catch(function(){})}},5000);if(dnsRestoreTimer.unref)dnsRestoreTimer.unref();
 
+// The update lock does not wait for the launcher: the SWU timer and the background updater can start before it.
+var lockBootAttempts=0;var lockBootTimer=setInterval(function(){if(++lockBootAttempts>BOOT_RETRIES){clearInterval(lockBootTimer);return}if(platform.status().agent.connected){clearInterval(lockBootTimer);wins.bootLock().catch(function(){})}},5000);if(lockBootTimer.unref)lockBootTimer.unref();
 // Quick wins that need a task after every boot (HbbTV's flag lives in /tmp, AmbientApp is started by the firmware
 // 15 s after boot). Runs once the adapter is connected; the choice was saved by Vetro when the win was switched on.
-var winsBootAttempts=0;var winsBootTimer=setInterval(function(){if(++winsBootAttempts>BOOT_RETRIES){clearInterval(winsBootTimer);return}if(platform.status().agent.connected){clearInterval(winsBootTimer);wins.boot(hbbtv).catch(function(){})}},5000);if(winsBootTimer.unref)winsBootTimer.unref();
+var winsBootAttempts=0;var winsBootTimer=setInterval(function(){if(++winsBootAttempts>BOOT_RETRIES){clearInterval(winsBootTimer);return}if(platform.status().agent.connected&&dock.bootSettled()){clearInterval(winsBootTimer);wins.boot(hbbtv).catch(function(){});keyGuides.boot().catch(function(){})}},5000);if(winsBootTimer.unref)winsBootTimer.unref();
 
 // Keep removed apps removed: the source fix is written on every change; this is only the safety net, slow, and only
 // while the switch is on. It also runs once when the adapter is up, and once more to take Vetro's ids out if the
 // switch was left off with ids still in Samsung's list.
 var keepRemovedTimer=setInterval(function(){if(platform.status().agent.connected&&!debloatBusy&&keepRemoved.enabled())keepRemoved.check().catch(function(){});},10*60000);if(keepRemovedTimer.unref)keepRemovedTimer.unref();
-var keepRemovedBootAttempts=0;var keepRemovedBootTimer=setInterval(function(){if(++keepRemovedBootAttempts>BOOT_RETRIES){clearInterval(keepRemovedBootTimer);return}if(platform.status().agent.connected){clearInterval(keepRemovedBootTimer);keepRemoved.check().catch(function(){});}},5000);if(keepRemovedBootTimer.unref)keepRemovedBootTimer.unref();
+var keepRemovedBootAttempts=0;var keepRemovedBootTimer=setInterval(function(){if(++keepRemovedBootAttempts>BOOT_RETRIES){clearInterval(keepRemovedBootTimer);return}if(platform.status().agent.connected&&dock.bootSettled()){clearInterval(keepRemovedBootTimer);keepRemoved.check().catch(function(){});}},5000);if(keepRemovedBootTimer.unref)keepRemovedBootTimer.unref();
 
 // Warm the boot-state cache of the Startup tab (a 12-17 s read on a Q80A, run as a detached job so the root agent is never held up) once
-// the TV has settled, so the first visit to the tab already has it. Tried for up to 5 minutes until the adapter is connected.
-var startupWarmAttempts=0;var startupWarmTimer=setInterval(function(){if(++startupWarmAttempts>30){clearInterval(startupWarmTimer);return}if(platform.status().agent.connected){clearInterval(startupWarmTimer);monitor.startup().catch(function(){});}},10000);if(startupWarmTimer.unref)startupWarmTimer.unref();
+// the TV has settled, so the first visit to the tab already has it. Not in the first five minutes after a boot (the job is a
+// systemctl listing of every unit, at the lowest priority but still competing with the TV's own start; a visit to the tab in
+// those minutes starts it itself). Then tried for up to 5 minutes until the adapter is connected.
+var STARTUP_WARM_AFTER_S=300;
+var startupWarmAttempts=0;var startupWarmTimer=setInterval(function(){if(os.uptime()<STARTUP_WARM_AFTER_S)return;if(++startupWarmAttempts>30){clearInterval(startupWarmTimer);return}if(platform.status().agent.connected&&dock.bootSettled()){clearInterval(startupWarmTimer);monitor.startup().catch(function(){});}},10000);if(startupWarmTimer.unref)startupWarmTimer.unref();
 
 // Put the service's own on-boot and auto-restart flags back once the adapter is connected (see ComponentActions.selfStartup).
-var selfStartupAttempts=0,selfStartupBusy=false;var selfStartupTimer=setInterval(function(){if(++selfStartupAttempts>BOOT_RETRIES){clearInterval(selfStartupTimer);return}if(selfStartupBusy||!platform.status().agent.connected)return;selfStartupBusy=true;inventory(true).then(function(d){if(d.registryError)throw Error(d.registryError);return ComponentActions.selfStartup(d.apps).reduce(function(p,cmd){return p.then(function(){return agentExecute(cmd,30000).then(function(r){invalidateInventory();if(r.exit_code||r.timed_out)throw Error(r.stderr||r.stdout||'Startup flag not set')})})},Promise.resolve())}).then(function(){clearInterval(selfStartupTimer)}).catch(function(){}).finally(function(){selfStartupBusy=false})},5000);if(selfStartupTimer.unref)selfStartupTimer.unref();
+// The two flags come from Vetro's own row of the registry (one query), not from the whole inventory (three queries and a join).
+var selfStartupAttempts=0,selfStartupBusy=false;var selfStartupTimer=setInterval(function(){if(++selfStartupAttempts>BOOT_RETRIES){clearInterval(selfStartupTimer);return}if(selfStartupBusy||!platform.status().agent.connected||!dock.bootSettled())return;selfStartupBusy=true;AppRegistry.one(agentExecute,'vetrotvapp.svc',{user:false}).then(function(row){return ComponentActions.selfStartup(row?[row]:[]).reduce(function(p,cmd){return p.then(function(){return agentExecute(cmd,30000).then(function(r){invalidateInventory();if(r.exit_code||r.timed_out)throw Error(r.stderr||r.stdout||'Startup flag not set')})})},Promise.resolve())}).then(function(){clearInterval(selfStartupTimer)}).catch(function(){}).finally(function(){selfStartupBusy=false})},5000);if(selfStartupTimer.unref)selfStartupTimer.unref();

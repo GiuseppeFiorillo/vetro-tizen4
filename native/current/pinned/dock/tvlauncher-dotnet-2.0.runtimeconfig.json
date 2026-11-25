@@ -1,0 +1,16 @@
+{
+  "runtimeOptions": {
+    "tfm": "netcoreapp2.0",
+    "framework": {
+      "name": "Microsoft.NETCore.App",
+      "version": "2.0.0"
+    },
+    "configProperties": {
+      "System.GC.Concurrent": false,
+      "System.Globalization.Invariant": true,
+      "System.Reflection.Metadata.MetadataUpdater.IsSupported": false,
+      "System.Resources.UseSystemResourceKeys": true,
+      "System.Runtime.TieredCompilation": true
+    }
+  }
+}

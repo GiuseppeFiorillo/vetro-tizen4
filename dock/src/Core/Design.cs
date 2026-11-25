@@ -10,17 +10,29 @@ namespace Launcher.Core
     /// </summary>
     internal static class Design
     {
-        // ---- The bar (designer style "solid": opaque tint, thin light border, soft drop shadow) ----
-        public const int ShellRadius = 24;
-        public const int ShellColor = 0x2A3346;
-        public const float ShellAlpha = 0.98f;
+        // ---- The bar ----
+        // The bar (apps and Sources) and the Task manager panel are drawn in the material of the 123 pad and the volume pill:
+        // pill_rim (white at ShellBorderAlpha) ShellBorderW px outside the sheet, then pill_bg (ShellColor at VolumeAlpha),
+        // both nine-sliced to PanelRadius, and no drop shadow. The constants for dock_bg.png and shadow.png below are only read
+        // by tools/make-glass.cjs, which still renders those pictures.
+        /// <summary>Corner radius of the panels: the icons' radius (16% of 92 = 15) plus the bar's padding (26), so the corners are concentric.</summary>
+        public const int PanelRadius = 40;
+        /// <summary>Nine-slice border of pill_bg.png (96 x 96) and of pill_rim.png (100 x 100): half their side, so border_scale = radius / border.</summary>
+        public const int SheetSlice = 48;
+        public const int RimSlice = 50;
+        /// <summary>Nine-slice border of pill_cap.png (72 x 72), the ice capsule that marks the focus in the 123 pad and the Task manager.</summary>
+        public const int CapSlice = 36;
+        /// <summary>Opacity of the ice focus capsule (<see cref="RingColor"/>).</summary>
+        public const float FocusFillAlpha = 0.96f;
+        public const int ShellRadius = 16;
+        public const int ShellColor = 0x243448;
+        public const float ShellAlpha = 1.0f;
         public const int ShellBorderW = 2;
         public const int ShellBorderColor = 0xFFFFFF;
         public const float ShellBorderAlpha = 0.22f;
         /// <summary>Nine-slice border of the bar image: more than its corner radius, so the curve is never stretched.</summary>
         public const int ShellSlice = 32;
         public const int ShadowBlur = 50;      // CSS blur radius: a Gaussian of sigma = blur / 2
-        public const int ShadowDy = 18;
         public const float ShadowAlpha = 0.45f;
 
         // ---- Icons ----
@@ -38,14 +50,24 @@ namespace Launcher.Core
         public const float GlowStrength = 0.44f;
         public const int GlowSpread = 16;
         public const int RingW = 2;
-        public const int RingColor = 0xFFFFFF;
+        /// <summary>The focus mark: an ice-white ring, clearly apart from the sheet and from the icons' own rim.</summary>
+        public const int RingColor = 0xE4F2FF;
+        /// <summary>A Control center card's scroll bar: the track in the rim's white, the thumb in the capsule's ice (half as bright on a card without the focus).</summary>
+        public const float ScrollTrackAlpha = 0.14f, ScrollThumbAlpha = 0.6f;
         /// <summary>The selected icon rises by this many pixels.</summary>
         public const int Lift = 4;
+
+        // ---- Chips and light (the Fumé material: dark smoked sheet, ice focus, blue light only for progress and indicators) ----
+        /// <summary>Light blue used only for progress and indicators (the level of the volume pill, a switch that is on).</summary>
+        public const int LightColor = 0xA5D8FF;
+        /// <summary>Opacity of the volume pill's body: a little of the picture shows through.</summary>
+        public const float VolumeAlpha = 0.90f;
 
         // ---- Text ----
         public static readonly bool ShowLabels = false;
         public static readonly bool ShowClock = false;
         public const string HintText = "Source";
+        public const string TasksHintText = "Task manager";
 
         // ---- The two pills ----
         public const float PillBorderAlpha = 0.75f;

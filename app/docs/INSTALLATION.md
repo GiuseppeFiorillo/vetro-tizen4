@@ -1,10 +1,10 @@
 # Install Vetro on a Tizen 4 Kant-M2 TV
 
-[Back to Vetro](../../README.md) · [Compatibility](../../README.md#compatibility)
+[Back to Vetro](../../README.md) · [Compatibility](../../README.md#compatibility-and-limits) · [Optional standalone runtime](#optional-standalone-runtime)
 
 ## One way, and why
 
-This fork has **one validated installation path**:
+This fork has **one validated package installation path**, plus an [optional standalone runtime](#optional-standalone-runtime) for one tested firmware:
 
 ```text
 USB root chain  →  root shell on the TV  →  build this fork  →  install from the root shell  →  optional boot hook
@@ -12,7 +12,7 @@ USB root chain  →  root shell on the TV  →  build this fork  →  install fr
 
 The other routes that upstream documents do **not** work on these TVs:
 
-- **Apps2Samsung / the community catalog** installs the upstream Vetro 0.5.0 package. Upstream has no Tizen 4 port, so the launcher and the privileged features do not start on a Kant-M2 set. The package is not broken; it is the wrong build.
+- **Apps2Samsung / the community catalog** installs the upstream Vetro package. Upstream has no Tizen 4 port, so the launcher and the privileged features do not start on a Kant-M2 set. The package is not broken; it is the wrong build.
 - **The prebuilt signed packages** are signed by someone else and, again, contain the upstream build.
 - **The coding-agent route** only automates one of the routes above.
 
@@ -20,8 +20,8 @@ So: root first with the USB stick, then install the package you build here from 
 
 **Good to know before you start**
 
-- Use only a TV you own or are allowed to manage. Check the [compatibility table](../../README.md#compatibility) first.
-- The only target validated for this fork is a **QE49Q6FNA, firmware `T-KTM2DEUC-1400.2`**. The USB exploit is tied to the Kant-M2 kernel; another firmware needs its own port.
+- Use only a TV you own or are allowed to manage. Check [compatibility and limits](../../README.md#compatibility-and-limits) first.
+- This route was validated on a **QE49Q6FNA, firmware `T-KTM2DEUC-1400.2`**, with the 0.5.0 port; it has not been re-tested with 0.7.0. The 0.7.0 launcher and app behaviour was tested on a **UE65NU7100, firmware `T-KTM2LDEUC-1400.2`**, with the standalone runtime. The USB exploit is tied to the Kant-M2 kernel; another firmware needs its own port.
 - **Developer Mode and Host PC IP are not part of this route.** Vetro talks to a root daemon on the TV's loopback, not to the TV's SDB service.
 - Keep one computer on the same trusted LAN for the whole procedure: it builds the stick, runs the listener and serves the package.
 - **Never install both persistence mechanisms.** The USB repository has its own persistent daemon and this fork has its own boot hook. Both edit `/opt/etc/parseinfo.sh`. Use one; this guide uses the Vetro one.
@@ -35,7 +35,7 @@ So: root first with the USB stick, then install the package you build here from 
 | Clang with the ARM integrated assembler | assembles the USB stages |
 | A USB stick of at least 128 MB | is erased completely |
 | Node.js 22 | builds and signs the package |
-| .NET SDK 8 | builds the launcher for both Tizen 4 runtimes |
+| .NET SDK 10 | only to rebuild the launcher ([2.2](#22-build-the-launcher)) |
 | Tizen Studio 6.1 + Samsung Certificate Extension | your own author and distributor certificate |
 | `curl` on the TV | already present on the tested firmware |
 
@@ -116,24 +116,16 @@ cd /path/to/your/vetro-checkout
 
 ### 2.2 Build the launcher
 
-The dock is built twice: `netcoreapp3.1` for TVs with `/usr/bin/dotnet`, and `netcoreapp2.0` for the `corerun` that the Kant-M2 firmware ships. The package chooses at runtime.
+The dock ships in two builds: `netcoreapp3.1` for TVs with `/usr/bin/dotnet`, and `netcoreapp2.0` for the `corerun` that the Kant-M2 firmware ships. The package chooses at runtime. Both are already in `app/native/dock/`, built from the sources in `dock/src`, so **skip this step unless you changed the launcher**.
 
-```sh
-cd dock
-DOTNET=/path/to/dotnet ./build.sh
-cd ..
-```
-
-This copies four files into `app/native/dock/`. The package build fails later if they are missing.
+To rebuild, follow [native rebuilds](../../docs/DEVELOPMENT.md#native-rebuilds): `dock/build.sh` rebuilds the `netcoreapp3.1` file reproducibly, and `tools/build-native.sh` rebuilds the pinned `netcoreapp2.0` file against .NET Core 2 reference assemblies you supply. `npm run audit` refuses a `netcoreapp2.0` build that does not match `native/current/manifest.json`.
 
 ### 2.3 Assemble and sign the package
 
-The signing dependencies are declared in `rooting/on-boot-probe`:
+The signing dependencies have their own lockfile in `chain/signing`:
 
 ```sh
-cd rooting/on-boot-probe
-npm ci
-cd ../..
+npm ci --prefix chain/signing
 ```
 
 Build the unsigned package, then sign it with **your own** author and distributor certificates. Do not reuse someone else's package or certificates.
@@ -253,16 +245,15 @@ If it remains `false`, investigate the hook and daemon. Plug the stick back in, 
 
 ## 4. First run
 
-- **The launcher is off by default.** Turn it on in the **Launcher** tab if you want it; Vetro starts and stops it from there.
-- Quick settings and the Task manager work from the dashboard. Every switch records what it changed; **Maintenance → Restore the TV** puts it back.
+- **The launcher is off by default.** Turn it on in **Vetro UI → Launcher** if you want it; Vetro starts and stops it from there.
+- Quick settings and the Task manager work from the dashboard. Every switch records what it changed; **Quick settings → General → Restore the TV** puts it back.
 - Read what a switch does before turning it on. Some of them stop background services that the TV expects.
 
 ## Updating
 
 **The dashboard accepts only this fork’s signed releases.** Select **Check for update** to query the `updates` branch of `GiuseppeFiorillo/vetro-tizen4`. Upstream Vetro releases use a different signing key and are rejected. No update is downloaded automatically.
 
-Previously installed builds that still trust upstream must be replaced once with a package containing the fork’s new public key. They cannot accept a new-key update through the old updater. See [updating and publishing releases](UPDATING.md).
-
+Previously installed builds that still trust upstream must be replaced once with a package containing the fork’s new public key. They cannot accept a new-key update through the old updater. A TV on 0.5.0-tizen4 already trusts the fork’s key and can take 0.7.0 as an in-app update once it is published. See [updating and publishing releases](UPDATING.md).
 
 Update by repeating [2.2](#22-build-the-launcher), [2.3](#23-assemble-and-sign-the-package) and [3.1](#31-install-the-package). The package id is unchanged, so this is an in-place update and your settings stay. The boot hook does not need to be reinstalled unless you moved `/opt/vetro-root`.
 
@@ -270,8 +261,8 @@ Update by repeating [2.2](#22-build-the-launcher), [2.3](#23-assemble-and-sign-t
 
 Restore first: a package uninstall leaves the debloating changes and the domain filter behind.
 
-1. **Restore the TV.** Dashboard → *Quick settings* → *Maintenance* → **Restore the TV**, then confirm. Read the report: uninstalled apps and values written in the TV's own settings need manual recovery.
-2. **Remove Vetro's saved data.** *Remove Vetro* → *Remove Vetro's saved data*. It is offered only when nothing is left to restore, because those files hold the values used to roll back.
+1. **Restore the TV.** Dashboard → *Quick settings* → *General* → **Restore the TV**, then confirm. Read the report: uninstalled apps and values written in the TV's own settings need manual recovery.
+2. **Remove Vetro's saved data.** *Quick settings* → *General* → *Remove Vetro* → *Remove Vetro's saved data*. It is offered only when nothing is left to restore, because those files hold the values used to roll back.
 3. **Remove the boot hook first.** Serve the installer again as in [2.5](#25-serve-both-files-to-the-tv) and run it from a root shell; if the TV has been rebooted since the install, cold-boot it with the USB stick to get that shell. Add `--purge` to delete `/opt/vetro-root` too:
 
    ```sh
@@ -297,7 +288,7 @@ Open `http://TV_IP:8099/status` and read these fields:
 | `agent.connected` stays false after a cold boot with no USB | The daemon has not connected; the hook may have failed or `parseinfo.sh` may have been replaced. | Cold-boot with the USB stick and read `/opt/vetro-root/boot.log`; reinstall the hook if needed. |
 | `pkgcmd` returns a certificate or signature error | The TV does not trust the signing profile. | Re-sign with your own author/distributor certificate; do not reuse a downloaded package. |
 | Install succeeds but the dashboard is unreachable | The port changed or another app owns it. | Rebuild with `VETRO_PORT=9000` and try `http://TV_IP:9000/`. |
-| The launcher says it is not in this package | The package was built without the dock files. | Run `dock/build.sh` before `chain/build.cjs`, then reinstall. |
+| The launcher says it is not in this package | The package was built without the dock files. | Check that `app/native/dock/` has both launcher builds (restore them from Git if needed), rebuild with `chain/build.cjs`, then reinstall. |
 
 ## Safety and rollback
 
@@ -306,3 +297,50 @@ Open `http://TV_IP:8099/status` and read these fields:
 - `sh /tmp/vetro-boot.sh --uninstall` restores the original byte-for-byte.
 - Vetro records every change it makes. **Restore the TV** is the rollback for the debloating switches.
 - Root is root: a bug in the daemon or in a plugin runs with full privileges. Do not expose port 8099 or the root loopback outside your LAN.
+
+## Optional standalone runtime
+
+An alternative to the boot hook, tested only on **UE65NU7100 / T-KTM2LDEUC-1400.2**: a root daemon, pairing display, Home-key routing override and USB recovery watcher that start from the vendor boot script. It is built from `overlay/`, `lib/`, `profiles/` and `native/current/` ([development](../../docs/DEVELOPMENT.md#standalone-build), [validation](../../docs/VALIDATION.md), [Home-key override](../../docs/HOME-KEY-OVERRIDE.md)). **Never combine it with the boot hook from [3.3](#33-install-the-boot-hook)**: both own `/opt/etc/parseinfo.sh`.
+
+This repository has no USB installer for it. The standalone runtime has been
+tested on UE65NU7100 / T-KTM2LDEUC-1400.2 with Developer Mode off. The target is
+KANT-M2, but other hardware/firmware needs a reviewed profile; the QE49Q6FNA
+results for the boot-hook route above do not validate this profile.
+
+### Build and deployment boundary
+
+1. Obtain root through a separately supported installation/recovery method for
+   your own TV.
+2. Supply the original startup script privately and build the complete payload
+   following the development guide. Do not commit its generated firmware bytes.
+3. Verify native fingerprints, both manifests, root configuration and startup-hook
+   links together. Keep an independent recovery route when deploying an update.
+4. Preserve settings/pairing and require dashboard pairing during configuration.
+   Verify the owner service is unprivileged and root is connected through its
+   authenticated local agent.
+5. Verify Home routing, signed-in streaming apps, cold startup/root rearming and
+   physical USB recovery on the actual model.
+
+There is intentionally no one-line install command here: safely installing a
+complete linked payload depends on the TV's existing root and startup state.
+These build tools never connect to a TV.
+
+The standalone runtime does not use the signed package from [2.3](#23-assemble-and-sign-the-package);
+Samsung signing tools are separate from it.
+
+### Updating
+
+Read [standalone runtime updates](UPDATING.md#standalone-runtime-updates). Do not replace this port with an original
+Vetro release solely because its version number matches.
+
+### Recovery
+
+The tested recovery USB contains a regular VETRO-STANDALONE-ROLLBACK file whose
+contents are VETRO-STANDALONE-RECOVERY/1. It is a marker, not executable code.
+With the TV powered on, the independent watcher restores vendor Home routing,
+stops Vetro's launcher and opens Samsung Home while retaining paired maintenance.
+
+After removal, an authenticated maintainer can inspect the fresh recovery event
+and clear only the matching USB-triggered disable latch before resuming startup.
+Do not blindly remove failure latches or bypass a firmware/integrity mismatch.
+See the Home-key and validation notes for the tested behavior and limits.

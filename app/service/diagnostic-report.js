@@ -58,19 +58,119 @@ function screenProgress(d){var g=(d||{}).progress;if(!g||typeof g!=='object')ret
         slow:STEPS.filter(function(k){var p=probe[k];return !!(p&&p.ok===false&&/^(no answer|skipped)/.test(String(p.error||'')));}),
         carried:list(d.carried,2).filter(function(k){return k==='apps'||k==='packages';})};}
 function choice(v, allowed) { return allowed.indexOf(v) >= 0 ? v : null; }
+// A file under Samsung's TV client folder, relative to it ("1.3.15/Tizen.TV.Broadcast.TVService.dll"): Samsung's own file names only.
+var CLIENT_FILE_RE=/^[A-Za-z0-9_.-]{1,40}(?:\/[A-Za-z0-9_.-]{1,80}){0,3}$/;
+// A copy of the client elsewhere in the firmware (/usr/apps/<Samsung app>/..., /usr/share/dotnet.tizen/...): Samsung paths only.
+var CLIENT_PATH_RE=/^\/(?:usr|opt\/usr)\/[A-Za-z0-9_.\/-]{1,200}\.dll$/;
+var INPUT_ERRORS={'Saved physical remote is unavailable':'saved-remote-missing','native input helper did not connect':'helper-did-not-connect',
+    'unexpected input helper identity':'helper-identity','input helper launch failed':'helper-launch-failed','input helper disconnected; original keys released':'helper-disconnected',
+    'select a unique physical remote device':'remote-not-unique','input inventory unavailable':'inventory-unavailable','no root agent connected':'no-root',
+    'invalid input authentication':'helper-auth','invalid input sequence':'helper-sequence','invalid input event':'helper-event','oversized input frame':'helper-frame',
+    'input listener closed before launch':'listener-closed','no physical remote devices found':'no-remotes','input request cancelled':'cancelled',
+    'Replaced by a newer input request':'superseded','input action queue exceeded':'action-queue','remote-input host sent unexpected data':'host-data'};
+// The remote bridge's history (main.js inputHistory): each turn as a fixed word, with how many seconds before the export it happened.
+var INPUT_STOPS=['quick','rules','lifecycle','auto-off','vetro-ui','listen-idle','request','keys','other'];
+function inputTurn(e){
+    if(!e||!Number.isInteger(e.secondsAgo)||e.secondsAgo<0)return null;
+    var w=e.why, word=e.kind==='connected'?choice(w,['filter','observe']):e.kind==='lost'||e.kind==='ended'||e.kind==='failed'?inputErrorCode(w)||'other'
+        :e.kind==='stop'?choice(w,INPUT_STOPS):e.kind==='agent'?choice(w,['up','down']):e.kind==='request'?choice(w,['filter','observe','off']):e.kind==='restore'?'':null;
+    return word===null?null:{secondsAgo:e.secondsAgo,event:e.kind+(word?' '+word:'')};}
+function inputErrorCode(v){return typeof v==='string'&&v?(Object.prototype.hasOwnProperty.call(INPUT_ERRORS,v)?INPUT_ERRORS[v]:'other'):null;}
+function helperError(text){var lines=String(text||'').split('\n').map(function(l){return l.replace(/\/dev\/input\/[A-Za-z0-9_-]{1,32}/g,'<node>').trim();}).filter(function(l){return HELPER_ERROR_RE.test(l);});
+    return lines.length?lines[lines.length-1]:null;}
+var HELPER_ERROR_RE=/^[A-Za-z]{1,40}Exception: [A-Za-z0-9_ .,<>:-]{1,100}$/;   // a comma too: "write returned -1, expected 16
+// The launcher's own log, only the lines about the remote keys it is handed and the windows it draws for them (the volume bar, the
+// osd 123), and the Audio card's speaker-selection number. Fixed shapes only: the time of day is cut, Bluetooth addresses never pass
+// (the "outputs: <device>" lines are not in the list), an exception message passes only without slashes or quotes.
+var DOCK_EVENT_RES=[/^command (?:Show|Hide|Toggle|VolUp|VolDown|VolMute|Pad|Rescan|Reload)$/,/^volume: (?:the level cannot be read|level change refused|pill ready|elm_win_add failed)$/,
+    /^pad: (?:ready|elm_win_add failed)$/,/^(?:volume|pad): asset missing [A-Za-z0-9_]{1,40}$/,/^unmute key rc=-?\d{1,6}$/,/^pad: sending [A-Za-z0-9_ -]{1,40} rc=-?\d{1,6}$/,
+    /^outputs: speaker selection -?\d{1,3}, \d{1,3} rows, read in \d{1,6} ms$/,/^outputs: (?:UseTv TV speakers|UseExternal [A-Za-z ()+-]{1,30}) (?:ok|refused \([A-Za-z0-9 .,:=_-]{0,80}\))$/,/^launch com\.samsung\.tv\.csfs rc=-?\d{1,6}$/,/^launch via HbbTV (?:request \d{1,6} ms|failed)$/,/^(?:volume|volume hold|volume tick|pad|pad tick|pad key|pad send|pad closed|fifo|screen): [A-Za-z0-9 .,()_:=-]{1,160}$/,
+    /^home: (?:claim (?:granted|refused|unavailable)|window keys (?:on|refused|unavailable)|claimed press from the window|picture check not started rc=-?\d{1,6})$/];
+// The launcher's last openings (its OpenProbe lines): what opened and how long it took from the key to the first and the last frame of the
+// entrance, the key handler's own time and the longest gap between two frames, in ms. Fixed names, numbers only.
+var OPEN_RE=/^(?:\d{2}:\d{2}:\d{2}\.\d{3} )?perf open (home|fifo show|fifo toggle|control center|all apps|row rebuild|lists reload): frames=(\d{1,5}) key to first tick ms=(\d{1,6}\.\d) to first frame ms=(\d{1,6}\.\d) to last frame ms=(\d{1,6}\.\d) handler ms=(\d{1,6}\.\d) interval ms max=(\d{1,6}\.\d)$/;
+function dockOpenings(text){return String(text||'').split('\n').map(function(l){var m=OPEN_RE.exec(l.trim());return m?{what:m[1],frames:+m[2],firstFrameMs:+m[4],lastFrameMs:+m[5],handlerMs:+m[6],maxGapMs:+m[7]}:null;}).filter(Boolean).slice(-12);}
+// A launch through the HbbTV app (#200) keeps only its outcome and timing: which app it was is the user's business.
+function dockEvents(text){return String(text||'').split('\n').map(function(l){return l.replace(/^\d{2}:\d{2}:\d{2}\.\d{3} /,'').trim()
+        .replace(/^launch [A-Za-z0-9_.-]{1,120} via HbbTV request (\d{1,6}) ms$/,'launch via HbbTV request $1 ms').replace(/^launch via HbbTV failed: .*$/,'launch via HbbTV failed');})
+    .filter(function(l){return DOCK_EVENT_RES.some(function(re){return re.test(l);});}).slice(-16);}
+// The tuner's own log, only its start and its talk with Samsung's TV client, in fixed shapes: EFL's start, which client copy was loaded
+// (a firmware path and a version), the first reads with their timings (the channel name after "->" is cut), the window-system wait, a
+// silent TV service, and an exception's type (its message can hold paths). Milliseconds since the start are kept.
+var TUNER_EVENT_RES=[/^start pid=\d{1,7}(?: [a-z]{1,12})?$/,/^elm_init (?:start|done)$/,/^tvs: client \/(?:usr|opt\/usr)\/[A-Za-z0-9_.\/-]{1,160}\.dll \d{1,4}(?:\.\d{1,6}){1,3}$/,
+    /^tvs: (?:current|list|source) r=-?\d{1,6}[A-Za-z0-9 =\[\]:.,-]{0,80}$/,/^tvs: the window system is not up after \d{1,3} s, reading the TV anyway$/,/^tvs: no answer from the TV service after \d{1,3} s$/,
+    /^tvs worker: [A-Za-z][A-Za-z0-9_.]{0,80}Exception$/,
+    // Its window and whether it shows: the engine, a failed window or pipe, then the last show / hide / takeover lines (Samsung's app ids
+    // and states, no paths: a line with a '/' or a quote is dropped).
+    /^window up engine=[a-z_]{1,24}$/,/^(?:elm_win_add failed|pipe failed|shown|hidden)$/,/^not shown: no channel list yet, Samsung's live TV keeps the screen$/,
+    /^(?:takeover|resume|live): [A-Za-z0-9 .,()>_=-]{1,160}$/,
+    // The TV's input as the tuner reads it (Samsung's source type: 0 the tuner, -1 an app or Samsung TV Plus, 13-16 HDMI).
+    /^input: source type (?:first|-?\d{1,3}) -> -?\d{1,3} \((?:TV|not the TV tuner)\)$/];
+function tunerEvents(text){return String(text||'').split('\n').map(function(l){
+        var m=/^\+(\d{1,7})ms (.*)$/.exec(l.trim());if(!m)return null;
+        var body=m[2].replace(/^(tvs: .*?) -> .*$/,'$1').replace(/^(tvs worker: [A-Za-z][A-Za-z0-9_.]{0,80}Exception)[:\s].*$/,'$1').trim();
+        return TUNER_EVENT_RES.some(function(re){return re.test(body);})?{ms:+m[1],line:body}:null;}).filter(Boolean).slice(0,40);}
+// The tuner's threads, one "name|state|wait|stack" line each (main.js): the thread's name, its state letter, the kernel function it waits
+// in, and for a thread stuck in D the function names of its kernel stack. Kernel and thread names only, nothing of the user's.
+function tunerThreads(text){return String(text||'').split('\n').map(function(l){var f=l.split('|');if(f.length<3)return null;
+        var name=f[0].trim(),state=f[1].trim(),wait=f[2].trim(),stack=String(f[3]||'').trim().split(/\s+/).filter(function(x){return /^[A-Za-z_][A-Za-z0-9_.]{0,63}$/.test(x);}).slice(0,8);
+        if(!/^[A-Za-z0-9 ._:#()-]{1,16}$/.test(name)||!/^[RSDTtZXIKWP]$/.test(state))return null;
+        return {name:name,state:state,wait:/^[A-Za-z_][A-Za-z0-9_.]{0,63}$/.test(wait)?wait:null,stack:stack.length?stack:null};}).filter(Boolean).slice(0,64);}
+// The firmware section: each item as the TV said it, cut down to what it may be. Numbers in a range, yes/no, or a word from a fixed list.
+function intIn(v,min,max){var n=/^-?\d{1,9}$/.test(String(v||''))?+v:NaN;return Number.isFinite(n)&&n>=min&&n<=max?n:null;}
+function bit(v){return v==='1'||v==='true'||v==='True'?true:v==='0'||v==='false'||v==='False'?false:null;}
+function frontKind(v){if(typeof v!=='string'||!v)return null;if(/^com\.samsung\.tv\.(?:csfs|home\.media|home\.sidebar|coba\.)/.test(v))return 'samsung-home';
+    if(v==='org.tizen.tv-viewer')return 'tv-viewer';if(/^vetrotvapp(?:\.|$)/.test(v))return 'vetro';return 'other';}
+// Samsung's universal remote: whether it runs, its current activity, the SPDIF status that stops it taking Vol (2), and its activity list cut
+// down to numbers: how many activities, and the values of the fields that say how each one is driven (no names, brands or code sets).
+function mbrNumbers(text,field){var out=[],re=new RegExp('"'+field+'"\\s*:\\s*"?(-?\\d{1,4})','g'),m;while((m=re.exec(text))&&out.length<12)out.push(+m[1]);return out;}
+function mbrSection(d){
+    var raw='';try{raw=/^[A-Za-z0-9+\/=]{0,40000}$/.test(String(d.mbrActivity||''))?Buffer.from(String(d.mbrActivity||''),'base64').toString('utf8'):'';}catch(e){raw='';}
+    return {daemon:bit(d.mbrDaemon),activityIndex:intIn(d.mbrIndex,-99,999),spdifStatus:intIn(d.spdifStatus,-9,99),
+        activities:raw?{bytes:Math.min(raw.length,99999),count:(raw.match(/"ActivityName"/g)||[]).length,sendIrTypes:mbrNumbers(raw,'SendIRType'),
+            audioSources:mbrNumbers(raw,'AudioSource'),deviceTypes:mbrNumbers(raw,'DeviceType'),activityModes:mbrNumbers(raw,'ActivityMode')}:null};
+}
+function firmwareSection(d){
+    var pm=/^ii (\d{1,7}) (-?\d{1,4})$/.exec(String(d.pictureMode||'')),nc=/(\d{1,2}\.\d{1,2}\.\d{1,3})\/?$/.exec(String(d.netcoreapp||''));
+    return {rootApp:bit(d.rootApp),rootColdBoot:intIn(d.rootColdBoot,0,9),homeApp:d.homeApp?(['com.samsung.tv.csfs','org.tizen.tv-viewer'].indexOf(d.homeApp)>=0?d.homeApp:'other'):null,
+        autoStart:intIn(d.autoStart,0,9),appBooting:intIn(d.appBooting,0,9),firstscreenState:intIn(d.firstscreenState,-9,99),
+        showStatus:d.showStatus?choice(d.showStatus,['full','partial','none'])||'other':null,front:frontKind(d.front),homeShown:intIn(d.homeShown,-9,9),
+        pictureMode:pm?+pm[1]:null,pictureModeResult:pm?+pm[2]:null,speakerSelection:intIn(d.speakerSelection,-1,99),extVolume:intIn(d.extVolume,-99999,99999)!==null?intIn(d.extVolume,-99999,99999):bit(d.extVolume),mbr:mbrSection(d),displayState:intIn(d.displayState,0,9),
+        autoProtection:intIn(d.autoProtection,-1,999),screensaverOn:intIn(d.screensaverOn,-9,9),screensaverRunning:bit(d.screensaverRunning),
+        keyGuides:{volume:bit(d.guideVolume),viewer:bit(d.guideViewer),viewerDb:intIn(d.guideViewerDb,0,9)!==null?intIn(d.guideViewerDb,0,9)>0:bit(d.guideViewerDb),
+            settingsMenuGuide:bit(d.settingsMenuGuide),oobStatus:intIn(d.oobStatus,-9,99)},
+        dotnetRuntime:nc?nc[1]:null,inputKeyevent:bit(d.inputKeyevent),volumeApp:bit(d.volumeApp),functionOsd:bit(d.functionOsd),quicklaunch:bit(d.quicklaunch),
+        hbbtvApp:bit(d.hbbtvApp),inputHelpers:intIn(d.inputHelpers,0,99),uptimeMinutes:intIn(d.uptime,0,99999999)!==null?Math.round(+d.uptime/60):null};
+}
+var KEY_NAME_RE=/^[A-Z][A-Z0-9_]{1,31}$/, SCAN_RE=/^0x[0-9A-F]{8}$/;
+// Linux key codes that type something: the digits (KEY_1..KEY_0, the keypad's, KEY_NUMERIC_0..9) and the letters.
+function TYPED_KEY(c){return (c>=2&&c<=11)||(c>=16&&c<=25)||(c>=30&&c<=38)||(c>=44&&c<=50)||[71,72,73,75,76,77,79,80,81,82].indexOf(c)>=0||(c>=512&&c<=521);}
+var ROOT_CODES=['platformUnsupported','prepare-failed','token-write-failed','preflight-failed','runtime-unsupported','runtime-probe-failed',
+    'capabilities-probe-failed','dotnet-capabilities-missing','launcher-capabilities-missing','tar-probe-failed','tar-unsupported','agent-disconnected','agent-timeout',
+    'sdbRefused','sdbTimeout','sdbReset','sdbAuthRequired','sdbError','sdbClosed','sdbStreamFailed','sdbStreamError','error'];
 function rooting(d) {
     var r=d.rooting||{}, f=r.failure||{};
     return {backend:choice(r.backend,['sdb-archive']),
         phase:choice(r.phase,['stopped','unsupported','preparing','preflight','sdb-handshake','launch-command','agent-callback','connected','retrying']),
         failure:r.failure?{
             stage:choice(f.stage,['preparation','preflight','sdb-handshake','launch-command','agent-callback','agent-connection']),
-            code:choice(f.code,['platformUnsupported','prepare-failed','token-write-failed','preflight-failed','runtime-unsupported','runtime-probe-failed',
-                'capabilities-probe-failed','dotnet-capabilities-missing','launcher-capabilities-missing','tar-probe-failed','tar-unsupported','agent-disconnected','agent-timeout',
-                'sdbRefused','sdbTimeout','sdbReset','sdbAuthRequired','sdbError','sdbClosed','sdbStreamFailed','sdbStreamError'])
+            code:choice(f.code,ROOT_CODES)
         }:null};
 }
+// The last root launches, oldest first: how each ended (ok, a code from the fixed list of rooting(), "pending" while it runs) and how
+// long ago, so a report shows why root took long or never came (#99, the 0.6.9 preview reports).
+function attempts(d){var launches=list(d.attempts,500).filter(function(a){return a&&a.phase==='launch';});
+    return {count:launches.length,firstConnectSeconds:typeof((d.timing||{}).firstConnect||{}).ms==='number'?Math.round(d.timing.firstConnect.ms/1000):null,
+        last:launches.slice(-6).map(function(a){var c=String(a.connect||''),code=c.indexOf('fail:')===0?c.slice(5):null;
+            return {result:c==='ok'?'ok':!c?'pending':choice(code,ROOT_CODES)||'other',agoSeconds:typeof a.t==='number'?Math.max(0,Math.round((Date.now()-a.t)/1000)):null};})};}
+// How the root channel fared since the service started: agents lost (closed by the agent's side, or by Vetro: a command that never
+// answered, with that command's timeout, a frame too large or malformed, a failed send), answers that came after their caller had given up, commands refused while the channel was busy.
+function channel(d){var c=d.channel||{},secs=function(ms){return typeof ms==='number'&&ms>=0?Math.round(ms/1000):null;};
+    return {losses:Number.isInteger((d.timing||{}).losses)?d.timing.losses:null,lateAnswers:Number.isInteger(c.lateAnswers)?c.lateAnswers:null,lateMaxSeconds:secs(c.lateMaxMs),
+        busyRefusals:Number.isInteger(c.busyRefusals)?c.busyRefusals:null,
+        drops:list(c.drops,6).map(function(x){return {reason:choice(x&&x.reason,['closed','command-timeout','frame-too-large','bad-frame','bad-result','send-failed']),agoSeconds:x&&typeof x.at==='number'?Math.max(0,Math.round((Date.now()-x.at)/1000)):null,timeoutSeconds:secs(x&&x.timeoutMs)};})};}
 var projectors = {
-    platform:function(d){return {mode:token(d.mode),running:boolean(d.running),prepared:boolean(d.prepared),rootAgent:{connected:boolean((d.agent||{}).connected),uid:numeric((d.agent||{}).uid)},rooting:rooting(d),rootRuntime:choice((d.preflight||{}).runtime,['3.1','6.0']),runtime:token((d.self||{}).node),persistence:'unknown',backgroundExecution:'unknown'};},
+    platform:function(d){return {mode:token(d.mode),running:boolean(d.running),prepared:boolean(d.prepared),rootAgent:{connected:boolean((d.agent||{}).connected),uid:numeric((d.agent||{}).uid)},rooting:rooting(d),rootAttempts:attempts(d),rootChannel:channel(d),rootRuntime:choice((d.preflight||{}).runtime,['3.1','6.0']),runtime:token((d.self||{}).node),persistence:'unknown',backgroundExecution:'unknown'};},
     device:function(d){var out={};['model','realModel','modelCode','firmware'].forEach(function(k){out[k]=token((d||{})[k]);});out.source='widget-probe';out.probeAgeMinutes=ageMinutes((d||{}).receivedAt);out.firmwareSource=out.firmware===null?null:(d||{}).firmwareSource==='service-read'?'service-read':'widget-probe';out.modelSource=out.realModel===null&&out.model===null?null:(d||{}).modelSource==='service-api'?'service-api':'widget-probe';out.tizenVersion=require('./device-info.js').version((d||{}).tizenVersion);out.tizenVersionSource=out.tizenVersion===null?'unknown':(d||{}).tizenVersionSource==='widget-capability'?'widget-capability':'service-read';return out;},
     inventory:function(d){return {source:token(d.source),registryAvailable:!d.registryError,dependenciesAvailable:boolean(d.dependenciesAvailable),apps:list(d.apps).map(function(a){return Object.assign({appId:token(a.appId),packageId:token(a.packageId),version:token(a.version),type:token(a.type),component:token(a.component),category:token(a.category),origin:token(a.origin),size:numeric(a.size),dependencies:dependencies(a.dependencies),dependents:dependencies(a.dependents)},flags(a,['disabled','onboot','autorestart','show','system','removable','protected']));})};},
     settings:function(d){return {items:list(d.items).filter(function(x){return settings.some(function(s){return s.id===x.id;});}).map(function(x){return {id:x.id,value:typeof x.value==='boolean'?x.value:numeric(x.value),writable:boolean(x.writable),access:x.access==='verified'?'implemented':token(x.access),probe:token(x.probe),available:!x.error};}),api:d.api&&typeof d.api==='object'?{status:token(d.api.status),methods:numeric(d.api.methods)}:null};},
@@ -82,13 +182,29 @@ var projectors = {
     mqtt:function(d){return Object.assign({state:['connected','connecting','disconnected','disabled','error'].indexOf(d.state)>=0?d.state:'unknown',hasError:!!d.lastError},flags(d,['connected']),numbers(d,['sent','received']));},
     privacy:function(d){return {doNotTrack:numeric(d.doNotTrack),acr:numbers(d.acr,['recognitionStatus','reset']),hbbtv:Object.assign(numbers(d.hbbtv,['dataService']),flags(d.hbbtv,['off','appRunning'])),tvPlusConsent:boolean(d.tvPlusConsent),agreementsAvailable:boolean(d.agreementsAvailable)};},
     hbbtv:function(d){return Object.assign({value:numeric(d.value)},flags(d,['off','canRestore']));},
-    // Launcher: states and counts only. The error text, the log tail and the app list (names of installed apps) stay out.
+    // Launcher: states and counts only. The error text, the log tail and the app list (names of installed apps) stay out; `events` is the
+    // last lines of its log about Vol, Mute, 123, their windows and the Audio card, in the fixed shapes of DOCK_EVENT_RES.
     launcher:function(d){return Object.assign({entryCount:Array.isArray(d.entries)?d.entries.length:null,inputCount:Array.isArray(d.inputs)?d.inputs.length:null,
         appCount:numeric((d.apps||{}).count),skippedCount:Array.isArray((d.apps||{}).skipped)?d.apps.skipped.length:null,failures:numeric(d.failures),hasError:boolean(d.hasError),
         tizenTubeTile:Array.isArray(d.entries)?d.entries.some(function(e){return LAUNCHER_RE.test(String(e.appId));}):null},
         flags(d,['installed','enabled','running','samsungHome','busy','fixTizenTube','noMotion','autorunSwitchedOff','customHomeDisabled']),
-        {mode:['off','vetro','custom'].indexOf(d.mode)>=0?d.mode:null,customApp:boolean(!!d.customApp)});},
-    quickWins:function(d){var w=d.wins||{},out={};['firmware','multiscreen','ambient'].forEach(function(k){out[k]=Object.assign({status:['on','off','partial','unknown'].indexOf((w[k]||{}).status)>=0?w[k].status:null},flags(w[k],['running','chosen']));});return out;},
+        {mode:['off','vetro','custom'].indexOf(d.mode)>=0?d.mode:null,customApp:boolean(!!d.customApp),volumeBar:boolean(d.volumePill),numberPad:boolean(d.numberPad),
+         cardCount:Array.isArray(d.cards)?d.cards.length:null,homePictureClears:numeric(d.homePictureClears),homePictureAgoSeconds:numeric(d.homePictureAgoSeconds),appStore:choice(d.appStore,['samsung','tvstore']),events:dockEvents(d.keyLog),
+         bootTimeline:d.bootTimeline&&typeof d.bootTimeline==='object'?numbers(d.bootTimeline,['serviceStart','agentSeen','shownAtPowerOn']):null,
+         openings:dockOpenings(d.openLog)});},
+    // Vetro TV Tuner: states and counts only. The error text and the log tail stay out. `prerequisites` says which of the four things
+    // the tuner needs exist on this TV (the firmware's dotnet, Samsung's TV client, tvs-daemon, Samsung's live TV app) and `clientVersions`
+    // the version folders of that client (numbers only), so a report from another TV shows what is different there.
+    tuner:function(d){return Object.assign({failures:numeric(d.failures),hasError:boolean(d.hasError)},flags(d,['installed','enabled','running','supported','busy','samsungTunerFound']),
+        {prerequisites:d.prerequisites?flags(d.prerequisites,['dotnet','client','tvs','viewer']):null,
+         clientVersions:list(d.clientVersions,5).filter(function(v){return typeof v==='string'&&/^\d+(?:\.\d+){0,3}$/.test(v);}),
+         clientFiles:list(d.clientFiles,12).filter(function(v){return typeof v==='string'&&CLIENT_FILE_RE.test(v)&&v.indexOf('..')<0;}),
+         clientElsewhere:list(d.clientElsewhere,6).filter(function(v){return typeof v==='string'&&CLIENT_PATH_RE.test(v)&&v.indexOf('..')<0;}),
+         events:tunerEvents(d.tunerLog),threads:tunerThreads(d.tunerThreads)});},
+    // What differs between firmware generations (the root app, Samsung's Home and its picture mode, the sound output, the screen and its
+    // saver, the remote key guides, the .NET runtime, which of Samsung's apps exist, how many input helpers run). See firmwareSection().
+    firmware:firmwareSection,
+    quickWins:function(d){var w=d.wins||{},out={};['firmware','multiscreen','ambient','telemetry','airplay','keyguides'].forEach(function(k){out[k]=Object.assign({status:['on','off','partial','unknown'].indexOf((w[k]||{}).status)>=0?w[k].status:null},flags(w[k],['running','chosen']));});return out;},
     probe:function(d){var out={source:'widget-probe',probeAgeMinutes:ageMinutes(d.receivedAt)};['tizenObject','webapisObject','supportedKeys','apps','packages','productinfo','systeminfoBattery','remoteApi8001','serviceReach'].forEach(function(k){var p=(d.probe||{})[k];out[k]={available:p?boolean(p.ok):null};if(p&&k==='supportedKeys')out[k].keys=list(p.value,256).map(token).filter(Boolean);if(p&&(k==='tizenObject'||k==='webapisObject'))out[k].present=boolean(p.value);});out.screen=screenProgress(d);return out;},
     // Only when the user asks for it (see component-facts.js): manifest facts for the components the catalog does not know.
     components:function(d){return {requested:true,complete:boolean(d.complete),packageCount:numeric(d.packageCount),totalUnknown:numeric(d.totalUnknown),truncated:boolean(d.truncated),
@@ -98,7 +214,37 @@ var projectors = {
                 flags(c,['declaredOnBoot','declaredAutoRestart','taskmanage','registeredOnBoot','registeredAutoRestart','differs']));})};})};},
     // #135: read only. Whether db/FactoryApp/Aging exists and its value (1 = the factory colour test starts at every boot).
     factoryTest:function(d){return {present:boolean(d.present),value:numeric(d.value),type:token(d.type),active:boolean(d.active)};},
-    serviceApis:function(d){return flags(d,['tizenObject','webapisObject','application','package','tvinputdevice','systeminfo']);}
+    serviceApis:function(d){return flags(d,['tizenObject','webapisObject','application','package','tvinputdevice','systeminfo']);},
+    // The remote interception, in counts and yes/no only (remote names can be personal): whether it is on and holds a remote, whether the
+    // saved remote is among the remotes now, how many input nodes share its name (a Bluetooth remote can split its keys over several)
+    // and how many remotes there are to choose from. With Vetro UI's two key switches, this says why the volume bar or the pad stay away.
+    // recentKeys: the last key presses the interception saw on the remote it holds (code, Linux key name, scan code, held back or passed
+    // on, or used to turn the screen back on after Picture Off: woke), so a report taken right after pressing Vol+, Vol-, Mute and 123 shows which codes a remote really sends (the SolarCell's volume
+    // is not 66/67/68) and whether they reach the node Vetro holds at all. Codes of remote buttons only, at most 30.
+    // failure: the service's last reason for not holding the remote, as a fixed word; helperError: the input helper's last exception, its type
+    // and the operation that failed with the errno ("IOException: EVIOCGRAB failed with errno 16"), device paths cut out; prevHelperError: the
+    // same for the helper before it (why a helper that held the remote ended).
+    input:function(d){return Object.assign(flags(d,['enabled','auto','connected','savedPresent','savedNodePresent','volumeKeys','padKey','problem']),numbers(d,['sameNameCount','keyedSameNameCount','selectableCount']),
+        {failure:inputErrorCode(d.failure),helperError:helperError(d.helperLog),prevHelperError:helperError(d.prevHelperLog),
+            // remoconSubtype: whether the helper made its copy of the remote a Remocon on the TV (set, refused, no tool, no node, failed).
+            remoconSubtype:(function(m){return m?m[1].replace(' ','-'):null;})(/^remocon subtype: (set|unsupported|refused|no tool|no node|failed)$/.exec(String(d.remoconSubtype||'').trim())),
+            // remoconNode: how the helper found its copy's input node (by the sysfs name uinput gave it, by its Phys, not at all); null from a
+            // helper older than preview23 or one that never got that far.
+            remoconNode:(function(m){return m?m[1]:null;})(/^remocon node: (sysname|phys|none)$/.exec(String(d.remoconNode||'').trim()))},
+        // loop: what the 5 s restore loop is waiting on; history: the bridge's last turns (connected, lost, ended before connecting, a restore
+        // tried or failed, a stop and who asked, the root agent up or down, a Remapper request), newest last.
+        {loop:d.loop&&typeof d.loop==='object'?Object.assign(flags(d.loop,['paused','lifecycle','restoring']),numbers(d.loop,['faultPauseSeconds','retryWaitSeconds','retryFailures','tokenCount']),{mode:choice(d.loop.mode,['off','filter','observe'])}):null,
+            history:list(d.history,24).map(inputTurn).filter(Boolean)},
+        // Digits and letters (a PIN, a password typed on a keyboard that the interception holds) leave as "typed" only, without code,
+        // name or scan code: these reports are posted in public issues.
+        {recentKeys:list(d.recentKeys,30).filter(function(e){return e&&Number.isInteger(e.code)&&e.code>=0&&e.code<=767;}).map(function(e){
+            if(TYPED_KEY(e.code))return {code:null,key:null,scan:null,typed:true,held:e.decision==='blocked',woke:e.decision==='wake'};
+            return {code:e.code,key:typeof e.key==='string'&&KEY_NAME_RE.test(e.key)?e.key:null,scan:typeof e.scan_code_hex==='string'&&SCAN_RE.test(e.scan_code_hex)?e.scan_code_hex:null,
+                held:e.decision==='blocked',woke:e.decision==='wake'};}),
+            // volumeRoute: which way the last held Vol / 123 key went: the launcher's FIFO opened by the service (dock), written by the root
+            // agent after the service was refused (agent), or given back to Samsung (native); errno: the service's own open, as a code.
+            volumeRoute:d.volumeRoute&&typeof d.volumeRoute==='object'?{route:choice(d.volumeRoute.route,['dock','agent','native']),
+                errno:/^E[A-Z0-9]{1,15}$/.test(d.volumeRoute.errno)?d.volumeRoute.errno:null,ageSeconds:Number.isInteger(d.volumeRoute.ageSeconds)&&d.volumeRoute.ageSeconds>=0?Math.min(d.volumeRoute.ageSeconds,9999999):null}:null});}
 };
 // The startup listing needs about 13-17 s of systemctl work on a Q80A and more on slower TVs.
 var SLOW = {startup: 4, components: 3};
@@ -128,4 +274,8 @@ function twoSamples(snapshot, gapMs, totalMs) {
         });
     });
 }
-module.exports={collect:collect,projectors:projectors,twoSamples:twoSamples};
+// The diagnostics' root commands print their parts one after another with a line "---" between them. Split on those lines only: a
+// pattern that also ate the line break let two empty parts in a row run together, and every later part moved up one (the helper's
+// remocon lines came back as null when its log held nothing else, 2026-11-21).
+function parts(text){var out=[''];String(text||'').split('\n').forEach(function(l){if(l==='---')out.push('');else out[out.length-1]+=(out[out.length-1]?'\n':'')+l;});return out.map(function(p){return p.replace(/\n+$/,'');});}
+module.exports={collect:collect,projectors:projectors,twoSamples:twoSamples,parts:parts};

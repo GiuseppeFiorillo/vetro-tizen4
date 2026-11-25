@@ -12,6 +12,8 @@ The dashboard checks when you press **Check for update**. It offers newer compat
 
 **Existing installations need one package reinstall.** Builds that still trust upstream have the old public key. Install a package built from this fixed source with the same Samsung signing identity to switch them to the fork’s channel. Updating the GitHub repository alone does not change an installed TV.
 
+**From 0.5.0-tizen4 to 0.7.0** is an in-app update: 0.5.0-tizen4 already trusts the fork’s key, and 0.7.0 changes only the version in `config.xml`, so `shell` stays 1.
+
 Update settings and the existing recovery/rollback mechanism are preserved. If a release changes `config.xml`, increase `shell` and distribute a new WGT instead of relying on a file swap.
 
 ## Signing key
@@ -30,8 +32,8 @@ For a new independent fork, generate your own pair with `node rooting/release.cj
 
 From the repository root:
 
-1. Run the tests. If C# sources changed, run `sh dock/build.sh` first.
-2. Increase the version consistently in `app/config.xml`, `app/package.json`, and `app/service/build-info.js`. The next version after `0.5.0` can be `0.5.1`.
+1. Run the tests. If C# sources changed, rebuild the launcher first ([native rebuilds](../../docs/DEVELOPMENT.md#native-rebuilds)).
+2. Increase the version consistently in `app/config.xml`, `app/package.json`, and `app/service/build-info.js`. The next version after `0.7.0` can be `0.7.1`.
 3. Build the signed update with your private key:
 
 ```sh
@@ -45,6 +47,12 @@ The builder uses `chain/build.cjs`, preserving the Tizen 4 adapter and launcher.
 
 No Samsung certificate or private update key is included in these files.
 
+### Size limit for TVs on 0.5.0-tizen4
+
+A TV on 0.5.0-tizen4 applies an update as one shell script, which its root daemon accepts only up to 65,536 bytes. Every file that differs from what the TV has makes that script longer, whatever the file's size. The builder measures the script with the frozen 0.5.0-tizen4 updater in `rooting/tests/fixtures/update-from-050-tizen4/` and refuses a bundle that would not fit, unless the release raises `shell` (those TVs are then asked to reinstall instead). 0.7.0 measures 63,254 bytes. `rooting/tests/update-size.test.cjs` fails before a commit pushes it over.
+
+Generate fixture hashes from LF Git contents (`git -c core.autocrlf=false -c core.eol=lf archive`), never from a Windows CRLF checkout: CRLF copies make unchanged files count as changed. When 0.7.0 is published, add its own installed baseline next to the 0.5.0-tizen4 one, so later updates are measured from both.
+
 ## Publish on GitHub
 
 Publish **both generated JSON files at the root of the `updates` branch** in `GiuseppeFiorillo/vetro-tizen4`. Create that branch the first time; subsequent releases use the same branch. GitHub’s **Add file → Upload files** can be used on that branch. Upload the versioned bundle before, or in the same commit as, the new index. A GitHub Release attachment alone is not the configured update feed.
@@ -52,3 +60,9 @@ Publish **both generated JSON files at the root of the `updates` branch** in `Gi
 Keep older versioned bundles available. Never upload `update-private.pem`. Source commits on `main` do not publish a dashboard update: only the signed files in `updates` do.
 
 The version must be newer than the installed version. A higher `shell` requires a WGT reinstall; the updater cannot change package privileges or service declarations. The persistent root daemon in `/opt/vetro-root/` and the boot hook are not replaced by the dashboard update: releases changing those components need their separate installation procedure.
+
+## Standalone runtime updates
+
+For the [optional standalone runtime](INSTALLATION.md#optional-standalone-runtime), the dashboard updater is not a substitute for a coordinated runtime deployment. Build the complete payload with its owner-supplied private vendor input. Native source changes require matching rebuilt artifacts and manifest fingerprints. Review all linked runtime manifests, root hook and root configuration together.
+
+Root startup, Home-key routing and USB recovery changes need their own verified install/restore plan. Keep credentials and settings separate from application source. The size check above does not establish compatibility for standalone deployments.

@@ -1,0 +1,337 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using Tuner.Core;
+
+internal static partial class Tests
+{
+    private static byte[] Fixture(string name) { return File.ReadAllBytes(Path.Combine(AppContext.BaseDirectory, "fixtures", name)); }
+
+    private static List<GuideEvent> Events(string fixture, bool description = false)
+    {
+        List<GuideEvent> ev;
+        Check(GuideReply.Parse(Fixture(fixture), description, out ev), "fixture " + fixture + " parses");
+        return ev;
+    }
+
+    private static void GuideChecks()
+    {
+        // ---- the reply of GetProgramList, captured on the Q80A (2026-11-07) ----
+        List<GuideEvent> none;
+        Check(GuideReply.Parse(Fixture("sched_40_3h.bin"), false, out none) && none.Count == 0, "a channel with no data: result 0, empty map, no events");
+
+        List<GuideEvent> c5 = Events("sched_5_3h.bin", true);
+        Check(c5.Count == 2, "Canale 5, 3 h: two programmes");
+        Check(c5[0].Title == "Tu si que vales" && c5[0].Duration == 13414 && c5[0].EventId == 58516, "first programme: title, length, event id");
+        Check(c5[0].Description.StartsWith("Talenti, sfide ed emozioni"), "the description is kept when asked");
+        Check(c5[1].Title == "Tg5" && c5[1].Start == c5[0].End, "the second starts where the first ends");
+        Check(Events("sched_5_3h.bin", false)[0].Description == "", "no description when not asked");
+
+        List<GuideEvent> la7 = Events("sched_7_3h.bin");
+        Check(la7.Count == 2 && la7[0].Title == "In altre parole ST.4" && la7[1].Title == "UOZZAP ST.20", "La7: the two programmes");
+
+        foreach (string f in new[] { "sched_1_168h.bin", "sched_5_24h.bin", "sched_1_3h.bin" })
+        {
+            List<GuideEvent> ev = Events(f);
+            bool sorted = true, contiguous = true, titles = true;
+            for (int i = 0; i < ev.Count; i++)
+            {
+                if (ev[i].Title.Length == 0) titles = false;
+                if (i > 0 && ev[i].Start < ev[i - 1].Start) sorted = false;
+                if (i > 0 && ev[i].Start != ev[i - 1].End) contiguous = false;
+            }
+            Check(ev.Count > 0 && sorted && contiguous && titles, f + ": sorted, back to back, every programme titled (" + ev.Count + ")");
+        }
+        Check(Events("sched_1_168h.bin").Count == 70 && Events("sched_5_24h.bin").Count == 32, "programme counts of the long captures");
+
+        // garbled replies are refused and never throw
+        List<GuideEvent> junk;
+        byte[] full = Fixture("sched_5_3h.bin");
+        Check(!GuideReply.Parse(new byte[0], false, out junk) && junk.Count == 0, "an empty reply is refused");
+        Check(!GuideReply.Parse(null, false, out junk), "no reply is refused");
+        var cut = new byte[full.Length / 2]; Array.Copy(full, cut, cut.Length);
+        Check(!GuideReply.Parse(cut, false, out junk), "a truncated reply is refused");
+        var bad = (byte[])full.Clone(); bad[1] = 4;
+        Check(!GuideReply.Parse(bad, false, out junk), "a reply that is not a branch is refused");
+
+        // ---- the store ----
+        var store = new GuideStore();
+        long now = c5[0].Start + 600;
+        Check(store.Get(5) == null && store.Current(5, now) == null && store.NeedsRead(5, now, now + 3600), "an unknown channel is read");
+        store.Put(5, c5, now, now + 10800);
+        Check(store.Current(5, now).Title == "Tu si que vales", "the programme on air comes from the store");
+        Check(store.Current(5, c5[1].Start + 1).Title == "Tg5", "and the next one once it has started");
+        Check(store.Current(5, c5[1].End) == null, "nothing on air after the last programme");
+        // the programme after the one on air (Info's Next line)
+        Check(store.Next(5, now) == c5[1], "next: the programme after the one on air");
+        Check(store.Next(5, c5[0].End - 1) == c5[1], "next: still the same one in the last second of the programme on air");
+        Check(store.Next(5, c5[1].Start + 1) == null, "next: none when the list ends with the programme on air");
+        Check(store.Next(5, c5[1].End) == null, "next: none when nothing is on air and nothing comes later");
+        Check(store.Next(5, c5[0].Start - 600) == c5[0], "next: before the first programme, the first one");
+        Check(store.Next(77, now) == null, "next: none for a channel not read");
+        var gaps = new GuideStore();
+        gaps.Put(30, new List<GuideEvent>(), now, now + 3600);
+        Check(gaps.Next(30, now) == null, "next: none for a channel with no data");
+        var g1 = new GuideEvent { Start = 1000, Duration = 1000, Title = "On air" };
+        var g2 = new GuideEvent { Start = 1500, Duration = 300, Title = "Starts inside it" };
+        var g3 = new GuideEvent { Start = 2300, Duration = 600, Title = "After a gap" };
+        var g4 = new GuideEvent { Start = 2900, Duration = 600, Title = "Later" };
+        gaps.Put(31, new List<GuideEvent> { g1, g2, g3, g4 }, now, now + 3600);
+        Check(gaps.Next(31, 1200) == g3, "next: one that starts inside the programme on air is skipped, a gap after it is not a stop");
+        Check(gaps.Next(31, 2100) == g3, "next: in a gap, the first one that starts after now");
+        Check(gaps.Next(31, 2300) == g4, "next: once it starts, the one after it");
+        Check(gaps.Next(31, 3500) == null, "next: none after the last one");
+        Check(!store.NeedsRead(5, now + 5, now + 3600), "a channel just read is left alone");
+        Check(store.NeedsRead(5, now + GuideStore.MaxAgeSeconds, now + 3600), "an old reading is read again");
+        Check(store.NeedsRead(5, now + 60, now + 86400), "a reading for a shorter window is read again for a longer one");
+        store.Put(9, new List<GuideEvent>(), now, now + 3600);
+        Check(!store.NeedsRead(9, now + 5, now + 3600) && store.NeedsRead(9, now + GuideStore.RetrySeconds, now + 3600), "a channel with no data is retried, but not at once");
+        // a failed read: an unknown channel is recorded as empty (the guide stops saying "Loading…") and retried later; a known schedule is kept
+        Check(store.PutFailed(11, now, now + 3600) && store.Get(11) != null && store.Get(11).Events.Count == 0, "a failed first read leaves the channel known and empty");
+        Check(!store.NeedsRead(11, now + 5, now + 3600) && store.NeedsRead(11, now + GuideStore.RetrySeconds, now + 3600), "a channel whose read failed is retried, but not at once");
+        Check(!store.PutFailed(5, now + 30, now + 3600) && store.Current(5, now) != null, "a failed read does not throw away a schedule that is known");
+        // A hard cap: paging through 300 channels within a minute keeps at most twice KeepChannels schedules, the newest ones.
+        var many = new GuideStore();
+        for (int c = 1; c <= 300; c++) many.Put((ulong)c, new List<GuideEvent>(), now + c / 10, now + 3600);
+        int kept = 0; for (int c = 1; c <= 300; c++) if (many.Get((ulong)c) != null) kept++;
+        Check(kept <= 2 * GuideStore.KeepChannels && many.Get(300) != null && many.Get(1) == null, "the guide store keeps the newest reads, at most twice its cap");
+        // Every caller asks for "now + horizon", a window that moves with the clock: a reading must still be good for MaxAgeSeconds,
+        // not go stale after 20 s (each zap then read 25 channels of 72 h again).
+        long horizon = 72 * 3600;
+        store.Put(21, c5, now, now + horizon);
+        Check(!store.NeedsRead(21, now + 19, now + 19 + horizon) && !store.NeedsRead(21, now + 60, now + 60 + horizon) && !store.NeedsRead(21, now + 600, now + 600 + horizon),
+            "a reading asked for 'now + horizon' stays good while the clock moves");
+        Check(store.NeedsRead(21, now + GuideStore.MaxAgeSeconds, now + GuideStore.MaxAgeSeconds + horizon), "and is read again when it is old");
+        // The store does not grow for ever: past KeepChannels, old readings go when a new one comes in.
+        var big = new GuideStore();
+        for (int i = 0; i < GuideStore.KeepChannels; i++) big.Put((ulong)(1000 + i), c5, now, now + horizon);
+        big.Put(5000, c5, now + GuideStore.MaxAgeSeconds + 1, now + horizon);
+        Check(big.Get(1000) == null && big.Get(5000) != null, "old readings are dropped once the store is full");
+        big.Put(5001, c5, now + GuideStore.MaxAgeSeconds + 2, now + horizon);
+        Check(big.Get(5000) != null, "a fresh reading is kept");
+        Check(string.Join(",", GuideStore.Nearest(6, 0)) == "1,5,2,4,3", "neighbours first, wrapping, current left out");
+        Check(string.Join(",", GuideStore.Nearest(4, 2)) == "3,1,0", "neighbours of a middle channel");
+        Check(GuideStore.Nearest(1, 0).Count == 0 && GuideStore.Nearest(5, -1).Count == 0, "nothing to read with no neighbours or no current");
+    }
+}
+
+internal static partial class Tests
+{
+    // ids of the channels the fixtures were read for
+    private const ulong Rai1 = 2654873089082394622UL, Canale5 = 2699909101328013310UL, La7 = 2626725588475322366UL, Empty40 = 2688650094869259262UL;
+    private const long ProbeNow = 1794087016;   // when the captures were taken (Sat 7 Nov 2026, about 22:30 in Italy)
+
+    private static GuideGrid SampleGrid(out GuideStore store, out ChannelList list)
+    {
+        var channels = new List<Channel>();
+        for (int i = 1; i <= 12; i++) channels.Add(Ch(i, "Channel " + i));
+        channels[0].Id = Rai1; channels[4].Id = Canale5; channels[6].Id = La7; channels[7].Id = Empty40;
+        list = new ChannelList(channels);
+        store = new GuideStore();
+        store.Put(Rai1, Events("sched_1_168h.bin"), ProbeNow, ProbeNow + 604800);
+        store.Put(Canale5, Events("sched_5_24h.bin"), ProbeNow, ProbeNow + 86400);
+        store.Put(La7, Events("sched_7_3h.bin"), ProbeNow, ProbeNow + 10800);
+        store.Put(Empty40, new List<GuideEvent>(), ProbeNow, ProbeNow + 10800);
+        return new GuideGrid(list, store);
+    }
+
+    private static GuideCell FocusCell(GuideGrid g)
+    {
+        GuideCell found = null;
+        for (int r = 0; r < GuideLayout.Rows; r++) foreach (GuideCell c in g.Cells(r)) if (c.Focus) { if (found != null) return null; found = c; }
+        return found;
+    }
+
+    private static string Titles(GuideGrid g, int row)
+    {
+        var t = new List<string>();
+        foreach (GuideCell c in g.Cells(row)) t.Add(c.Event != null ? c.Event.Title : c.Loading ? "…" : "-");
+        return string.Join("|", t);
+    }
+
+    private static void GuideGridChecks()
+    {
+        GuideStore store; ChannelList list;
+        GuideGrid g = SampleGrid(out store, out list);
+        g.Open(4, ProbeNow);                                      // Canale 5
+        Check(g.WindowStart % GuideGrid.Half == 0 && g.WindowStart <= ProbeNow && ProbeNow - g.WindowStart < GuideGrid.Half, "the window opens at the current half hour");
+        Check(g.FocusRow == 4 && g.FirstRow == 2 && g.FocusChannel.Major == 5, "opens on the channel, two rows from the top");
+        Check(g.FocusEvent != null && g.FocusEvent.Title == "Tu si que vales", "the focus is on the programme on air");
+
+        // geometry: inside the window, in order, no overlap
+        for (int r = 0; r < GuideLayout.Rows; r++)
+        {
+            int edge = GuideLayout.CellsX - 1;
+            foreach (GuideCell c in g.Cells(r))
+            {
+                Check(c.X > edge && c.X + c.W <= GuideLayout.CellsX + GuideLayout.CellsW, "row " + r + ": cell inside the window and after the one before");
+                edge = c.X + c.W - 1;
+            }
+        }
+        GuideCell fc = FocusCell(g);
+        Check(fc != null && fc.ClipLeft && !fc.ClipRight && fc.X == GuideLayout.CellsX, "the programme on air is cut at the left edge, where it began earlier, flush with the grid");
+        bool gaps = true;
+        for (int r = 0; r < GuideLayout.Rows; r++)
+        {
+            List<GuideCell> cs = g.Cells(r);
+            for (int i = 1; i < cs.Count; i++) if (cs[i].X - (cs[i - 1].X + cs[i - 1].W) != GuideLayout.CellGap) gaps = false;
+            if (cs.Count > 0 && cs[cs.Count - 1].ClipRight && cs[cs.Count - 1].X + cs[cs.Count - 1].W != GuideLayout.CellsX + GuideLayout.CellsW) gaps = false;
+        }
+        Check(gaps, "neighbouring cells are 4 px apart and a cell cut by the right edge reaches it");
+        Check(Titles(g, 2).StartsWith("Tu si que vales|Tg5"), "Canale 5 row: its programmes in order");
+        Check(Titles(g, 3) == "…" , "a channel not read yet is one 'loading' box");
+        Check(g.Cells(5).Count == 1 && g.Cells(5)[0].Event == null && !g.Cells(5)[0].Loading, "a channel with no data is one 'no information' box (row of channel 8)");
+        {
+            // that box is stripes from end to end: a left end, the tiled middle and a right end that meet exactly, and no plain cell under them
+            GuideCell box = g.Cells(5)[0];
+            int ry = -1; var parts = new List<Prim>();
+            foreach (Prim p in GuideScene.Build(g, ProbeNow, TimeSpan.FromHours(1), ""))
+                if ((p.Kind == PrimKind.Hatch || p.Kind == PrimKind.HatchEnd || p.Kind == PrimKind.Fill) && p.X >= box.X && p.X + p.W <= box.X + box.W && (ry < 0 || p.Y == ry)
+                    && (p.Kind != PrimKind.Fill || p.W == box.W)) { if (p.Kind == PrimKind.HatchEnd && p.X == box.X) ry = p.Y; if (p.Y == ry) parts.Add(p); }
+            Check(parts.Count == 3 && parts[0].Kind == PrimKind.HatchEnd && parts[0].Phase == 0 && parts[0].X == box.X && parts[0].W == GuideScene.HatchEndW
+                && parts[1].Kind == PrimKind.Hatch && parts[1].X == box.X + GuideScene.HatchEndW && parts[1].W == box.W - 2 * GuideScene.HatchEndW && parts[1].Phase == GuideScene.HatchEndW % GuideScene.HatchTile
+                && parts[2].Kind == PrimKind.HatchEnd && parts[2].X + parts[2].W == box.X + box.W && parts[2].Phase == 1 + (box.W - GuideScene.HatchEndW) % GuideScene.HatchTile,
+                "a 'no information' box: striped end to end (left end, middle, right end), the stripes running on across the joins, no plain cell under it");
+        }
+
+        // right: next programme, scrolling the time when it would not show
+        g.MoveTime(+1);
+        Check(g.FocusEvent.Title == "Tg5", "right: the next programme");
+        Check(g.WindowStart % GuideGrid.Half == 0 && g.WindowStart > g.MinStart, "the time scrolled in half hours");
+        GuideCell tg = FocusCell(g);
+        Check(tg != null && !tg.ClipLeft && !tg.ClipRight, "the next programme shows whole after the scroll");
+        g.MoveTime(-1);
+        Check(g.FocusEvent.Title == "Tu si que vales", "left: back to the first");
+        long ws = g.WindowStart;
+        g.MoveTime(-1);
+        Check(g.FocusEvent.Title == "Tu si que vales" && g.WindowStart <= ws, "nothing before the programme on air: left only scrolls the time back");
+        for (int i = 0; i < 10; i++) g.MoveTime(-1);
+        Check(g.FocusEvent.Title == "Tu si que vales" && g.WindowStart == g.MinStart, "and stops at the moment the guide opened");
+
+        // down / up keep the time; rows scroll
+        g.MoveRow(+1);
+        Check(g.FocusRow == 5 && g.FocusEvent == null && FocusCell(g).Loading, "down: an unread channel is focused as 'loading'");
+        g.MoveRow(+1);
+        Check(g.FocusRow == 6 && g.FocusEvent != null && g.FocusEvent.Title == "In altre parole ST.4", "down: La7's programme at the same time");
+        Check(g.FirstRow <= g.FocusRow && g.FocusRow < g.FirstRow + GuideLayout.Rows, "the focus stays on screen");
+        for (int i = 0; i < 40; i++) g.MoveRow(+1);
+        Check(g.FocusRow == 11 && g.FirstRow == 5, "down stops at the last channel, the rows scroll to show it");
+        for (int i = 0; i < 40; i++) g.MoveRow(-1);
+        Check(g.FocusRow == 0 && g.FirstRow == 0, "up stops at the first channel");
+        g.MovePage(+1);
+        Check(g.FocusRow == GuideLayout.Rows, "CH+ goes down a page");
+
+        // the data runs out: the time scrolls through the empty stretch and stops at the horizon
+        g.Open(6, ProbeNow);
+        for (int i = 0; i < 400; i++) g.MoveTime(+1);
+        Check(g.WindowEnd <= g.MaxEnd && g.WindowStart >= g.MinStart && g.WindowStart % GuideGrid.Half == 0, "the time never goes beyond the horizon");
+        Check(g.FocusEvent == null && FocusCell(g) != null, "after the last programme the focus is on a 'no information' stretch");
+        for (int i = 0; i < 400; i++) g.MoveTime(-1);
+        Check(g.FocusEvent != null && g.FocusEvent.Title == "In altre parole ST.4" && g.WindowStart == g.MinStart, "and back to the start");
+
+        // axis and now
+        g.Open(4, ProbeNow);
+        var ticks = g.Ticks();
+        Check(ticks.Count == 6 && ticks[0].Key == GuideLayout.CellsX && ticks[5].Key - ticks[0].Key == 5 * 240, "six half-hour ticks, 240 px apart");
+        Check(g.NowX(ProbeNow) > GuideLayout.CellsX && g.NowX(g.WindowEnd) == -1 && g.NowX(g.WindowStart - 1) == -1, "the 'now' line is inside the window or absent");
+        var order = g.RowsToRead();
+        Check(order[0] == g.FocusRow && new HashSet<int>(order).Count == order.Count && order.Count == list.Count, "rows to read: focus first, each once, all of them in a 12-channel list");
+
+        // the scene: every state of the fuzz fits the object pools and the screen, with one focus and the keyed texts once each
+        g.Open(4, ProbeNow);
+        var rnd0 = new Random(3);
+        bool sceneOk = true; string sceneWhy = "";
+        for (int i = 0; i < 400 && sceneOk; i++)
+        {
+            switch (rnd0.Next(5)) { case 0: g.MoveTime(+1); break; case 1: g.MoveTime(-1); break; case 2: g.MoveRow(+1); break; case 3: g.MoveRow(-1); break; default: g.MovePage(rnd0.Next(2) == 0 ? 1 : -1); break; }
+            List<Prim> scene = GuideScene.Build(g, ProbeNow, TimeSpan.FromHours(1), "A description.");
+            int fills = 0, texts = 0, focus = 0, hatches = 0, hatchEnds = 0, lines = 0, stripesFrom = -1; var keyNames = new HashSet<string>(); var keyed = new Dictionary<string, int>();
+            foreach (Prim p in scene)
+            {
+                if (p.Kind == PrimKind.Key && (!keyNames.Add(p.Text) || Array.IndexOf(GuideScene.KeyNames, p.Text) < 0 || p.W != GuideScene.KeyWidth(p.Text) || p.H != GuideScene.KeyH)) { sceneOk = false; sceneWhy = "footer key " + p.Text; }
+                if (p.Kind == PrimKind.Fill) fills++; else if (p.Kind == PrimKind.Text) texts++; else if (p.Kind == PrimKind.Focus) focus++; else if (p.Kind == PrimKind.Hatch) hatches++; else if (p.Kind == PrimKind.HatchEnd) hatchEnds++; else if (p.Kind == PrimKind.Line) lines++;
+                // A "No information" cell is striped end to end: left end (slot 0), middle, right end; every piece shows the stripes as they fall
+                // from the cell's left edge, so the lines run on across the joins.
+                if (p.Kind == PrimKind.HatchEnd && p.Phase == 0) stripesFrom = p.X;
+                else if ((p.Kind == PrimKind.Hatch || p.Kind == PrimKind.HatchEnd) && (stripesFrom < 0 || (p.Kind == PrimKind.Hatch ? p.Phase : p.Phase - 1) != (p.X - stripesFrom) % GuideScene.HatchTile)) { sceneOk = false; sceneWhy = "stripes break at x " + p.X; }
+                if (p.Kind == PrimKind.HatchEnd && p.Phase > 0) stripesFrom = -1;
+                if (p.Kind == PrimKind.Text && p.Key != null) { int n; keyed.TryGetValue(p.Key, out n); keyed[p.Key] = n + 1; }
+                if (p.Kind != PrimKind.Text && (p.X < 0 || p.X + p.W > 1920 || p.Y < 0 || p.Y + p.H > 1080)) { sceneOk = false; sceneWhy = "shape outside the screen"; }
+                if ((p.Kind == PrimKind.Fill || p.Kind == PrimKind.Focus || p.Kind == PrimKind.Hatch || p.Kind == PrimKind.HatchEnd) && (p.X < GuideLayout.CellsX || p.X + p.W > GuideLayout.CellsX + GuideLayout.CellsW)) { sceneOk = false; sceneWhy = "cell outside the grid"; }
+                if (p.Kind == PrimKind.Text && (p.Text == null || p.MaxW <= 0 || p.X < GuideLayout.LabelX || p.X > GuideLayout.Right || p.Weight == 0)) { sceneOk = false; sceneWhy = "text placement"; }
+            }
+            if (keyNames.Count != GuideScene.KeyNames.Length) { sceneOk = false; sceneWhy = "footer shows " + keyNames.Count + " of " + GuideScene.KeyNames.Length + " keys"; }
+            if (fills > GuideScene.MaxFills || texts > GuideScene.MaxTexts || hatches > GuideScene.MaxHatches || hatchEnds > GuideScene.MaxHatchEnds || lines > GuideScene.MaxLines || focus != 1) { sceneOk = false; sceneWhy = "pools: fills " + fills + " texts " + texts + " hatches " + hatches + " ends " + hatchEnds + " lines " + lines + " focus " + focus; }
+            foreach (var kv in keyed) if (kv.Value != 1 || Array.IndexOf(GuideScene.TextKeys, kv.Key) < 0) { sceneOk = false; sceneWhy = "keyed text " + kv.Key + " x" + kv.Value; }
+            if (!keyed.ContainsKey("num") || !keyed.ContainsKey("name")) { sceneOk = false; sceneWhy = "the focused row's number and name are not keyed"; }
+        }
+        Check(sceneOk, "400 scenes fit the pools and the screen, with one ice focus and each keyed text once" + (sceneOk ? "" : " (" + sceneWhy + ")"));
+
+        // the opened guide of the sample (a description read, logos for every row): about the mock-up's count of objects on screen (114 with the veil)
+        {
+            GuideStore st2; ChannelList l2;
+            GuideGrid g2 = SampleGrid(out st2, out l2);
+            g2.Open(4, ProbeNow);
+            List<Prim> open = GuideScene.Build(g2, ProbeNow, TimeSpan.FromHours(1), "Talenti, sfide ed emozioni con una giuria di quattro artisti.", c => "/logo.png");
+            int shown = 1;                                                       // the veil
+            foreach (Prim p in open) shown += p.Kind == PrimKind.Text && p.Lines > 1 ? p.Lines : 1;
+            Check(shown >= 60 && shown <= 140, "the opened guide shows about a hundred objects (" + shown + ")");
+            Prim f = open.Find(p => p.Kind == PrimKind.Focus);
+            Check(f.Alpha == GuideScene.FocusAlpha && f.H == GuideLayout.CellH && f.Y == GuideLayout.RowsY + 2 * GuideLayout.RowH + GuideLayout.CellDy, "the focus is the ice cell on the focused row");
+            Check(open.Exists(p => p.Kind == PrimKind.Text && p.Tint == GuideScene.Slate && p.Weight == 600 && p.Y == f.Y + 12) && !open.Exists(p => p.Kind == PrimKind.Fill && p.X == f.X && p.Y == f.Y), "the focused programme's title is slate on the focus, and the focus replaces its cell");
+            Prim title = open.Find(p => p.Key == "title");
+            Check(title.X == GuideLayout.X0 && title.Y == GuideLayout.TitleTop && title.Size == 64 && title.Weight == 600, "the header's title: 600/64 at 96, 70");
+            Prim date = open.Find(p => p.Kind == PrimKind.Text && p.Right);
+            Check(date.X == GuideLayout.Right && date.Y == GuideLayout.DateTop && date.Size == 32, "the date is right-aligned at 1824");
+            var axis = open.FindAll(p => p.Kind == PrimKind.Text && p.Y == GuideLayout.AxisY + 4);
+            Check(axis.Count == 6 && axis.FindAll(p => p.Weight == 600 && p.Alpha == 255).Count == 3, "six half hours on the axis, the three full hours in 600 white");
+            Check(open.Exists(p => p.Kind == PrimKind.Line && p.W == 3 && p.H == 16 && p.Tint == GuideScene.Light) && open.Exists(p => p.Kind == PrimKind.Line && p.W == 2 && p.Tint == GuideScene.Light && p.Alpha == GuideScene.NowAlpha), "now: a light mark on the axis and a trace through the rows");
+            Check(open.FindIndex(p => p.Kind == PrimKind.Line) < open.FindIndex(p => p.Kind == PrimKind.Fill), "the lines are drawn before (under) the cells");
+            Prim lastKey = open.FindLast(p => p.Kind == PrimKind.Key);
+            Check(open.Find(p => p.Kind == PrimKind.Key).X == GuideLayout.X0 && lastKey.Text == "key_back" && lastKey.Y == GuideLayout.FootTop - 2, "the footer starts at 96, its keys 2 px above the words");
+        }
+        string dump = Environment.GetEnvironmentVariable("GUIDE_PREVIEW");
+        if (dump != null)
+        {
+            Directory.CreateDirectory(dump);
+            g.Open(4, ProbeNow);
+            DumpScene(dump + "/guide_open.json", GuideScene.Build(g, ProbeNow, TimeSpan.FromHours(1), "Talenti, sfide ed emozioni con Elisabetta Canalis, Rudy Zerbi e una giuria di quattro artisti. In ogni puntata nuovi concorrenti si sfidano davanti al pubblico."));
+            g.MoveTime(+1); g.MoveRow(-4);
+            DumpScene(dump + "/guide_moved.json", GuideScene.Build(g, ProbeNow, TimeSpan.FromHours(1), ""));
+        }
+
+        // a long fuzz: whatever the keys, the model stays consistent and the focus is on screen exactly once
+        var rnd = new Random(7);
+        g.Open(0, ProbeNow);
+        bool ok = true; string why = "";
+        for (int i = 0; i < 3000 && ok; i++)
+        {
+            switch (rnd.Next(5))
+            {
+                case 0: g.MoveTime(+1); break;
+                case 1: g.MoveTime(-1); break;
+                case 2: g.MoveRow(+1); break;
+                case 3: g.MoveRow(-1); break;
+                default: g.MovePage(rnd.Next(2) == 0 ? 1 : -1); break;
+            }
+            if (g.WindowStart % GuideGrid.Half != 0 || g.WindowStart < g.MinStart || g.WindowEnd > g.MaxEnd) { ok = false; why = "window"; }
+            else if (g.FocusRow < g.FirstRow || g.FocusRow >= g.FirstRow + GuideLayout.Rows || g.FirstRow < 0) { ok = false; why = "rows"; }
+            else if (g.FocusTime < g.WindowStart || g.FocusTime >= g.WindowEnd) { ok = false; why = "focus time"; }
+            else if (FocusCell(g) == null) { ok = false; why = "focus cell step " + i; }
+        }
+        Check(ok, "3000 random moves keep the model consistent" + (ok ? "" : " (" + why + ")"));
+    }
+}
+
+internal static partial class Tests
+{
+    private static void DumpScene(string path, List<Prim> scene)
+    {
+        var sb = new System.Text.StringBuilder("[");
+        foreach (Prim p in scene)
+            sb.Append("\n{\"k\":\"" + p.Kind + "\",\"x\":" + p.X + ",\"y\":" + p.Y + ",\"w\":" + p.W + ",\"h\":" + p.H + ",\"a\":" + p.Alpha + ",\"s\":" + p.Size
+                + ",\"t\":" + System.Text.Json.JsonSerializer.Serialize(p.Text ?? "") + ",\"mw\":" + p.MaxW + ",\"l\":" + p.Lines + ",\"r\":" + (p.Right ? "true" : "false") + "},");
+        sb.Length--; sb.Append("\n]");
+        File.WriteAllText(path, sb.ToString());
+    }
+}

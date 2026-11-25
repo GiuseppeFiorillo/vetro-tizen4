@@ -1,0 +1,12 @@
+{
+  "description": "Protected root and Home-key runtime fingerprints; firmware bytes are not distributed.",
+  "files": {
+    "root/root-daemon.js": "bb8b6b968e1eae29883cf79bd72e0447697e79aaa717693be8afb3e71dcede19",
+    "root/startup.js": "4b0a30abca8655f44b8f656a4231ba5da95338d7727efcc6478d6ec67240d9e0",
+    "root/vetro-rootd.service": "5769ea724cfabf8667e94a5ef312883261f1f9680d8aa72ca1e4d0f5285723e5",
+    "root/vendor-original": "81b774498adafea47f2dba2635eff7f070730bdaa9cc167f23934fded49df0f8",
+    "standalone/home-key.js": "db18e40e5994c8a29ed032a30d42acb662a39cdcad7a9304fc72a8d10ad64bfb",
+    "standalone/home-key-launch.js": "f4cefaf70ccc509045446a6b7448f2de5207a82b06937c28ce2ca5fe426a643c",
+    "standalone/units/vetro-home-key.service": "28de623484476b64ae9287d60eea52fe81c56d06d4b527be7e4a05df31bfd6d4"
+  }
+}

@@ -14,7 +14,14 @@ const out = screen.build({version: '0.3.5', port: 8099, platform: {mode: 'tv-int
   input: {policy: {connected: true}, preference: {enabled: true}}, launcher: {installed: true, enabled: true, running: false, failures: 4, error: true},
   meminfo: 'MemAvailable: 153600 kB\n', interfaces: {}});
 assert.deepEqual(out, {version: '0.3.5', port: 8099, address: null, root: {mode: 'tv-integration', connected: true},
-  input: {enabled: true, connected: true}, launcher: {installed: true, enabled: true, running: false, failures: 4, hasError: true}, memory: {availableMb: 150}});
+  input: {enabled: true, connected: true, restarting: false, dropping: false}, launcher: {installed: true, enabled: true, running: false, failures: 4, hasError: true}, memory: {availableMb: 150}});
+// A start of the bridge under way: "Reconnecting" on the TV screen, never while it holds the remote (Q70C photos, 2026-11-19).
+const again = p => screen.build({version: '0.7.0', port: 8099, platform: {mode: 'tv-integration', agent: {connected: true}}, input: p, launcher: {}, meminfo: null, interfaces: {}}).input;
+assert.deepEqual(again({policy: {connected: false}, preference: {enabled: true}, restarting: true}), {enabled: true, connected: false, restarting: true, dropping: false});
+assert.equal(again({policy: {connected: false}, preference: {enabled: true}, dropping: true}).dropping, true, 'a helper lost again and again is reported');
+assert.equal(again({policy: {connected: true}, preference: {enabled: true}, dropping: true}).dropping, false, 'not while it holds the remote');
+assert.equal(again({policy: {connected: true}, preference: {enabled: true}, restarting: true}).restarting, false);
+assert.equal(again({policy: {connected: false}, preference: {enabled: true}}).restarting, false);
 
 const bare = screen.build({version: '0.3.5', port: 8099, platform: {mode: 'app-only', agent: {connected: false}}, input: {}, launcher: {}, meminfo: null, interfaces: {}});
 assert.equal(bare.root.connected, false);
@@ -35,6 +42,7 @@ assert.deepEqual(why({attempts: [{phase: 'launch', connect: 'ok'}, {phase: 'laun
 assert.deepEqual(why({attempts: [{phase: 'launch', connect: 'ok'}, {phase: 'launch', connect: 'fail:sdbClosed', err: 'closed before handshake'}]}), {reason: 'sdb', code: 'sdbClosed'});
 assert.deepEqual(why({attempts: [{phase: 'launch', connect: 'ok'}, {phase: 'launch', connect: 'fail:sdbRefused'}, {phase: 'agent-connected'}]}), {reason: 'sdb', code: 'sdbRefused'}, 'the last launch counts');
 assert.deepEqual(why({attempts: [{phase: 'launch', connect: 'fail:sdbRefused'}]}), {reason: 'starting', code: null}, 'one refusal right after a start is not a verdict');
+assert.deepEqual(why({attempts: [{phase: 'launch', connect: 'fail:preflight-failed'}, {phase: 'launch', connect: 'fail:preflight-failed'}]}), {reason: 'sdb', code: 'preflight-failed'}, 'a failed preflight is a verdict, not Connecting forever');
 assert.deepEqual(why({attempts: [{phase: 'launch', connect: 'fail:<b>x</b>'}, {phase: 'launch', connect: 'fail:<b>x</b>'}]}), {reason: 'starting', code: null}, 'a code of the wrong shape is not passed on');
 const down = screen.build({version: '0.5.0', port: 8099, platform: {mode: 'tv-integration', agent: {connected: false}, attempts: [{phase: 'launch', connect: 'fail:sdbClosed'}, {phase: 'launch', connect: 'fail:sdbClosed', err: 'secret text'}]}, input: {}, launcher: {}, meminfo: null, interfaces: {}});
 assert.deepEqual(down.root, {mode: 'tv-integration', connected: false, reason: 'sdb', code: 'sdbClosed'});

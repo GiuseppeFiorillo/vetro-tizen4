@@ -1,0 +1,19 @@
+[Unit]
+Description=Isolated Vetro standalone test dashboard
+After=starter.target systemd-tmpfiles-setup.service vetro-standalone-root-trial.service
+[Service]
+Type=simple
+User={{ownerUid}}
+Group={{ownerGid}}
+SmackProcessLabel={{runtimeLabel}}
+Environment=HOME=/home/owner
+Environment=VETRO_PORT={{port}}
+Environment=VETRO_ROOT_REQUEST={{data}}/vetro-root-request.json
+Environment=VETRO_DOCK_RUN_DIR=/tmp/vetro-standalone-dock-trial
+Environment=VETRO_PLUGIN_DIR={{data}}/plugins
+WorkingDirectory={{base}}
+ExecStart=/usr/bin/node -e "require('{{base}}/service/main.js')"
+Restart=no
+TimeoutStopSec=5
+StandardOutput=null
+StandardError=null

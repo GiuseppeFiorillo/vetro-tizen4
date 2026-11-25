@@ -51,11 +51,30 @@ const post = (body) => { const r = res(); host.dispatch('launcher', { method: 'P
     assert.equal(post('null').code, 400);
     r = get('icon', '/dock/icon?slug=known');
     assert.equal(r.code, 200); assert.equal(r.head['content-type'], 'image/png'); assert.equal(r.body.toString(), 'PNG');
+    // An ETag: asked again with it, an unchanged picture is a 304 without the image.
+    assert.match(r.head.etag, /^"[0-9a-f]{20}"$/);
+    const again = res(); host.dispatch('launcher', { method: 'GET', url: '/dock/icon?slug=known', headers: { 'if-none-match': r.head.etag } }, again, 'icon', json);
+    assert.equal(again.code, 304); assert.ok(!again.body || !again.body.length);
     assert.equal(get('icon', '/dock/icon?slug=..%2Fx').code, 404);
     assert.equal(get('icon', '/dock/icon').code, 404);
     assert.equal(get('nope').code, 404);
     r = res(); host.dispatch('launcher', { method: 'GET', url: '/dock', headers: {} }, r, 'action', json);
     assert.equal(r.code, 404, 'a route answers only the method it is for');
+
+    // "Rebuild the list" first takes the Home lines of apps that are gone, then rebuilds; a failed sweep never stops the rebuild
+    const scripts = [];
+    dock.execute = async cmd => {
+        const script = Buffer.from(/^echo (\S+) \|/.exec(cmd)[1], 'base64').toString(); scripts.push(script);
+        return /ORPHAN \$id/.test(script) ? { exit_code: 0, stdout: 'ORPHAN newslO9NqF.stremio\nREGISTRY 40\n' } : { exit_code: 0, stdout: 'HOME 2\n' };
+    };
+    let before = log.length;
+    r = post('{"action":"refresh"}'); await nextTick(20);
+    assert.equal(log[before], 'refresh'); assert.equal(scripts.length, 2, 'one read of the Home row, one cleanup');
+    assert.deepEqual(r.body.cleaned.removed, ['newslO9NqF.stremio']);
+    scripts.length = 0; dock.execute = async () => { throw new Error('agent gone'); };
+    before = log.length; r = post('{"action":"refresh"}'); await nextTick(20);
+    assert.equal(log[before], 'refresh'); assert.equal(r.body.cleaned, undefined, 'the rebuild goes on when the sweep fails');
+    delete dock.execute;
 
     // supervision: at once when the agent connects, then on the fifth tick
     log.length = 0;

@@ -1,0 +1,28 @@
+{
+  "build": "T-KTM2LDEUC-REL-202606052034",
+  "base": "/opt/vetro-root",
+  "hook": "/opt/etc/parseinfo.sh",
+  "hookDir": "/opt/etc",
+  "vendor": "/opt/vetro-root/vendor-original",
+  "vendorHash": "81b774498adafea47f2dba2635eff7f070730bdaa9cc167f23934fded49df0f8",
+  "template": "/opt/vetro-root/hook.awk",
+  "hookHash": "37183e220290c6807eeae8aa759fe94a06557649f0b241513fabd7aa7f91479b",
+  "daemon": "/opt/vetro-root/root-daemon.js",
+  "hashes": {
+    "/opt/vetro-root/root-daemon.js": "bb8b6b968e1eae29883cf79bd72e0447697e79aaa717693be8afb3e71dcede19",
+    "/opt/vetro-root/startup.js": "4b0a30abca8655f44b8f656a4231ba5da95338d7727efcc6478d6ec67240d9e0",
+    "/opt/vetro-root/vetro-rootd.service": "5769ea724cfabf8667e94a5ef312883261f1f9680d8aa72ca1e4d0f5285723e5",
+    "/opt/vetro-root/hook.awk": "37183e220290c6807eeae8aa759fe94a06557649f0b241513fabd7aa7f91479b"
+  },
+  "disable": "/opt/usr/home/owner/share/tmp/sdk_tools/VETRO-ROOT-DISABLE",
+  "disableDir": "/opt/usr/home/owner/share/tmp/sdk_tools",
+  "osRelease": "/etc/os-release",
+  "log": "/opt/vetro-root/startup.log",
+  "status": "/proc/self/status",
+  "label": "/proc/self/attr/current",
+  "pid": "/tmp/vetro-root-daemon.pid",
+  "lock": "/tmp/vetro-root-daemon.lock",
+  "healthMs": 30000,
+  "enforceRoot": true,
+  "chsmack": "/usr/bin/chsmack"
+}

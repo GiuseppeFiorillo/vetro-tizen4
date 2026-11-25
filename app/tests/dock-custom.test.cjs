@@ -21,7 +21,7 @@ function fixture(options) {
     const execute = async function (cmd) {
         tv.scripts.push(cmd);
         if (/^app_launcher -k /.test(cmd)) { tv.csfsKilled = true; return {exit_code: 0, stdout: ''}; }
-        const script = Buffer.from(cmd.split(' ')[1], 'base64').toString();
+        const script = /^echo \S+ \| base64 -d \| sh$/.test(cmd) ? Buffer.from(cmd.split(' ')[1], 'base64').toString() : cmd;   // the running check goes unwrapped
         if (script.includes('vconftool set') && script.includes('auto_start')) { tv.autorun = +/auto_start (\d)/.exec(script)[1]; return {exit_code: 0, stdout: ''}; }
         if (script.includes('vconftool get') && script.includes('auto_start')) return {exit_code: 0, stdout: 'db/menu/smart_hub/ontvsetting/auto_start, value = ' + tv.autorun + ' (Int32)\n'};
         if (script.includes('setsid nohup')) { tv.started = script; tv.running = true; return {exit_code: 0, stdout: 'started\n'}; }
@@ -50,6 +50,7 @@ function fixture(options) {
     assert.equal(f.dock.readState().customHomeDisabled, false);
     assert.ok(/--home-launch com\.example\.launcher/.test(f.tv.started) && /--kill-on-home com\.samsung\.tv\.csfs,com\.samsung\.tv\.home\.sidebar,com\.samsung\.tv\.home\.media/.test(f.tv.started),
         'the guard that closes Samsung Home after each press is on: ' + f.tv.started);
+    assert.ok(!f.tv.started.includes('--claim-home'), 'no Home claim: the headless launcher has no window to claim it on (#184)');
     assert.equal(f.tv.autorun, 0, 'the TV does not power on into Samsung Home');
     assert.equal(f.tv.csfsKilled, true, 'Samsung Home is closed once');
     assert.ok(f.tv.scripts.every(c => !/pkgcmd/.test(c)), 'no package command at all');

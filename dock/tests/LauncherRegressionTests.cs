@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using Launcher.Core;
@@ -21,6 +22,90 @@ namespace Launcher.Tests
 
         public static void Run()
         {
+            T.Run("legacy Home cold start is not raced by modern picture cleanup", () =>
+            {
+                T.Eq(HomePicture.Command(true), null, "the known slow Tizen 4 Home launch stays untouched");
+                T.True(HomePicture.Command().Contains("sleep 3"), "modern firmware keeps its own cleanup behavior");
+            });
+            T.Run("legacy streaming respects 0.7 Shard launch ownership", () =>
+            {
+                var normal = new AppEntry("youtube", "YouTube", "9Ur5IzDKqV.TizenYouTube", null);
+                var shard = new AppEntry("youtube", "YouTube", "9Ur5IzDKqV.TizenYouTube", null, null, -1, null, false, null, null, true);
+                T.True(LegacyTvActions.Command(normal).Contains("com.samsung.tv.cobalt-yt -u 5001"), "ordinary tile retains the native signed-in owner session");
+                T.Eq(LegacyTvActions.Command(shard), null, "a Shard-owned tile reaches the service before a native app is started");
+                T.True(ShardLaunch.Command(shard, 8099).Contains("/plugins/launcher/api/open?slug=youtube"), "the deferred tile uses the 0.7 Shard route");
+            });
+            T.Run("legacy streaming: web tiles use native runtime and owner identity", () =>
+            {
+                string dir = Path.Combine(Path.GetTempPath(), "vetro-streaming-" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(dir);
+                try
+                {
+                    string tool = Path.Combine(dir, "launcher"), log = Path.Combine(dir, "calls");
+                    File.WriteAllText(tool, "#!/bin/sh\nprintf '%s\\n' \"$*\" >> " + Q(log) + "\n");
+                    Shell("chmod +x " + Q(tool));
+                    string[] ids = { "9Ur5IzDKqV.TizenYouTube", "com.samsung.tv.cobalt-yt", "RN1MCdNq8t.Netflix", "org.tizen.netflix-app" };
+                    foreach (string id in ids)
+                    {
+                        string command = LegacyTvActions.Command("tile", id).Replace("/usr/bin/app_launcher", Q(tool))
+                            .Replace("/home/owner/tvlauncher-system-launch.log", Q(Path.Combine(dir, "output")));
+                        Shell(command + " wait");
+                    }
+                    string[] calls = File.ReadAllLines(log);
+                    T.Eq(calls.Length, 4, "one native launch per activation");
+                    T.Eq(calls[0], "-s com.samsung.tv.cobalt-yt -u 5001", "web YouTube uses native owner session");
+                    T.Eq(calls[1], calls[0], "native YouTube also keeps owner identity");
+                    T.Eq(calls[2], "-s org.tizen.netflix-app -u 5001", "web Netflix uses native owner runtime");
+                    T.Eq(calls[3], calls[2], "native Netflix also keeps owner identity");
+                    T.Eq(LegacyTvActions.Command("prime", "evKhCgZelL.AmazonIgnitionLauncher2"), null, "other streaming apps are unchanged");
+                }
+                finally { Directory.Delete(dir, true); }
+            });
+            T.Run("legacy Samsung Home: start then foreground the owner process", () =>
+            {
+                string dir = Path.Combine(Path.GetTempPath(), "vetro-home-launch-" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(dir);
+                try
+                {
+                    string tool = Path.Combine(dir, "native-launcher"), log = Path.Combine(dir, "calls"), times = Path.Combine(dir, "times");
+                    File.WriteAllText(tool, "#!/bin/sh\nprintf '%s\\n' \"$*\" >> " + Q(log) + "\ndate +%s%N >> " + Q(times) + "\n");
+                    Shell("chmod +x " + Q(tool));
+                    string command = SystemLaunch.Command("com.samsung.tv.csfs", null, true);
+                    T.True(command != null, "Samsung Home has a native legacy route");
+                    if (command == null) return;
+                    T.True(!command.Contains("/usr/bin/app_launcher"), "do not use the route that can report success without showing Home");
+                    Shell(command.Replace("/usr/bin/aul_test", Q(tool))
+                        .Replace("/home/owner/tvlauncher-system-launch.log", Q(Path.Combine(dir, "output"))) + " wait");
+                    string[] calls = File.ReadAllLines(log);
+                    T.Eq(calls.Length, 2, "one startup and one foreground request per activation");
+                    T.Eq(calls[0], "launch_async_for_uid com.samsung.tv.csfs 5001", "Home uses the native owner session");
+                    T.Eq(calls[1], calls[0], "foreground request keeps the same owner and app");
+                    string[] timestamps = File.ReadAllLines(times);
+                    T.True(long.Parse(timestamps[1]) - long.Parse(timestamps[0]) >= 900000000L, "foreground request follows a startup settling interval");
+                    File.Delete(log);
+                    File.WriteAllText(tool, "#!/bin/sh\nprintf '%s\\n' \"$*\" >> " + Q(log) + "\nexit 1\n");
+                    Shell(command.Replace("/usr/bin/aul_test", Q(tool)) + " wait");
+                    T.Eq(File.ReadAllLines(log).Length, 1, "a failed startup never schedules the foreground request");
+                    string guardFile = Path.Combine(dir, "guard's token");
+                    File.WriteAllText(guardFile, "9");
+                    File.Delete(log);
+                    File.WriteAllText(tool, "#!/bin/sh\nprintf '%s\\n' \"$*\" >> " + Q(log) + "\n");
+                    string guarded = SystemLaunch.Command("com.samsung.tv.csfs", "org.tizen.menu", true, guardFile, 9).Replace("/usr/bin/aul_test", Q(tool)).Replace("/usr/bin/app_launcher", Q(tool));
+                    Shell(guarded + " wait");
+                    T.Eq(File.ReadAllLines(log).Length, 2, "unchanged guard permits foreground request with a quoted path");
+                    File.Delete(log);
+                    File.WriteAllText(tool, "#!/bin/sh\nprintf '%s\\n' \"$*\" >> " + Q(log) + "\nprintf 10 > " + Q(guardFile) + "\n");
+                    Shell(guarded + " wait");
+                    T.Eq(File.ReadAllLines(log).Length, 1, "new Home gesture cancels the delayed foreground request");
+                    T.True(SystemLaunch.Command("com.samsung.tv.csfs", null).Contains("/usr/bin/app_launcher -s"), "modern runtime retains its existing Home route");
+                    T.True(SystemLaunch.Command("org.tizen.menu", null, true).Contains("/usr/bin/app_launcher -s org.tizen.menu"), "other legacy system tiles keep their existing route");
+                    bool refused = false;
+                    try { SystemLaunch.Command("com.samsung.tv.csfs;bad", null, true); } catch (ArgumentException) { refused = true; }
+                    T.True(refused, "native route still validates app IDs");
+                    T.True(HomeGuard.ShouldCancel(new[] { "com.samsung.tv.csfs" }, "com.samsung.tv.csfs"), "activating Home retires its close guard");
+                }
+                finally { Directory.Delete(dir, true); }
+            });
             T.Run("legacy TV actions: separate tuner and TV Plus, native key pairs", () =>
             {
                 T.Eq(LegacyTvActions.Command("tvplus", "other.app"), null, "ordinary apps are never redirected");
@@ -139,6 +224,47 @@ namespace Launcher.Tests
                 finally { Directory.Delete(dir, true); }
             });
 
+            T.Run("shard card: the shell gives curl the whole URL, '&' and all, as one argument", () =>
+            {
+                string dir = Path.Combine(Path.GetTempPath(), "vetro-shard-'" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(dir);
+                try
+                {
+                    string log = Path.Combine(dir, "args"), tool = Path.Combine(dir, "curl");
+                    File.WriteAllText(tool, "#!/bin/sh\nfor a in \"$@\"; do echo \"$a\" >> " + Q(log) + "; done\n");
+                    Shell("chmod +x " + Q(tool));
+                    Shell(ShardCard.SelectCommand("demo-lights", "living_room.1", 8099).Replace("/usr/bin/curl", Q(tool)));
+                    T.Eq(string.Join(" | ", File.ReadAllLines(log)), "-sf | -m | 12 | -X | POST | http://127.0.0.1:8099/plugins/launcher/api/card-select?plugin=demo-lights&row=living_room.1", "the choice: one URL, nothing run in the background");
+                    File.Delete(log);
+                    Shell(ShardCard.ReadCommand("demo-lights", 8099).Replace("/usr/bin/curl", Q(tool)));
+                    T.Eq(string.Join(" | ", File.ReadAllLines(log)), "-sf | -m | 5 | http://127.0.0.1:8099/plugins/launcher/api/card?plugin=demo-lights", "the read");
+                }
+                finally { Directory.Delete(dir, true); }
+            });
+
+            T.Run("Home guard diagnostics: failed closes are captured in a quoted log path", () =>
+            {
+                string dir = Path.Combine(Path.GetTempPath(), "vetro-guard-log-" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(dir);
+                try
+                {
+                    string tool = Path.Combine(dir, "launcher"), generation = Path.Combine(dir, "generation");
+                    string log = Path.Combine(dir, "diagnostic's log; text");
+                    File.WriteAllText(generation, "7");
+                    File.WriteAllText(tool, "#!/bin/sh\necho 'close failed' >&2\nexit 23\n");
+                    Shell("chmod +x " + Q(tool));
+                    string command = HomeGuard.Command(new[] { "com.samsung.tv.csfs" }, generation, 7, log)
+                        .Replace("/usr/bin/app_launcher", Q(tool)).Replace(" sleep ", " true ");
+                    Shell(command + " wait");
+                    T.Eq(File.ReadAllText(log).Split(new[] { "close failed" }, StringSplitOptions.None).Length - 1,
+                        5, "all failed close attempts retain stderr");
+                    File.Delete(log); File.WriteAllText(generation, "8");
+                    Shell(command + " wait");
+                    T.Eq(File.ReadAllText(log), "", "a retired generation still runs no close action");
+                }
+                finally { Directory.Delete(dir, true); }
+            });
+
             T.Run("custom launcher mode: only a plain app id becomes the Home target", () =>
             {
                 AppEntry e = HomeLaunch.Parse("org.example.projectivy");
@@ -150,21 +276,146 @@ namespace Launcher.Tests
                 T.Eq(HomeLaunch.Parse(null), null, "missing id refused");
             });
 
-            T.Run("CoBA system launch: fallback follows failed launcher, never a successful one", () =>
+            T.Run("Samsung Home: csfs, with Samsung's Home-key bundle on root-app firmware; the component package is never launched", () =>
             {
                 string dir = Path.Combine(Path.GetTempPath(), "vetro-launch-" + Guid.NewGuid().ToString("N"));
                 Directory.CreateDirectory(dir);
                 try
                 {
                     string tool = Path.Combine(dir, "launcher"), log = Path.Combine(dir, "calls");
-                    string command = SystemLaunch.Command("com.samsung.tv.coba.newhome", "com.samsung.tv.csfs").Replace("/usr/bin/app_launcher", Q(tool));
-                    File.WriteAllText(tool, "#!/bin/sh\necho \"$2\" >> " + Q(log) + "\n[ \"$2\" != com.samsung.tv.coba.newhome ]\n");
-                    Shell("chmod +x " + Q(tool)); Shell(command + " wait");
-                    T.Eq(string.Join(",", File.ReadAllLines(log)), "com.samsung.tv.coba.newhome,com.samsung.tv.csfs", "failed newhome tries csfs");
-                    File.Delete(log); File.WriteAllText(tool, "#!/bin/sh\necho \"$2\" >> " + Q(log) + "\nexit 0\n");
-                    Shell(command + " wait"); T.Eq(File.ReadAllLines(log).Length, 1, "success does not start two Homes");
+                    string root = Path.Combine(dir, "get_root_app"), done = Path.Combine(dir, "firstscreen_done"), none = Path.Combine(dir, "absent");
+                    File.WriteAllText(tool, "#!/bin/sh\necho \"$*\" >> " + Q(log) + "\nexit 0\n");
+                    Shell("chmod +x " + Q(tool));
+                    Shell(SystemLaunch.Command("com.samsung.tv.coba.newhome", "com.samsung.tv.csfs", none, done).Replace("/usr/bin/app_launcher", Q(tool)) + " wait");
+                    T.Eq(string.Join(",", File.ReadAllLines(log)), "-s com.samsung.tv.csfs", "an old list naming the component package opens csfs only, plainly on 2021 firmware");
+                    File.Delete(log);
+                    File.WriteAllText(root, ""); File.WriteAllText(done, "");
+                    Shell(SystemLaunch.Command("com.samsung.tv.csfs", null, root, done).Replace("/usr/bin/app_launcher", Q(tool)) + " wait");
+                    T.Eq(string.Join(",", File.ReadAllLines(log)), "-s com.samsung.tv.csfs entry_point smarthub_key __NO_RAISE_WINDOW enable __K_EX_FORCE_BOOST enable", "root-app firmware: Samsung's Home-key bundle");
+                    File.Delete(log); File.Delete(done);
+                    Shell(SystemLaunch.Command("com.samsung.tv.csfs", null, root, done).Replace("/usr/bin/app_launcher", Q(tool)) + " wait");
+                    T.True(File.ReadAllText(log).Contains("__K_SPLASH_SCREEN LA_UI_DEFAULT __K_EX_SPLASH_SCREEN_FORCE_SHOW enable"), "first screen not done yet: the splash keys too");
+                    File.Delete(log);
+                    File.WriteAllText(tool, "#!/bin/sh\necho \"$*\" >> " + Q(log) + "\n[ $# -le 2 ]\n");
+                    Shell(SystemLaunch.Command("com.samsung.tv.csfs", null, root, done).Replace("/usr/bin/app_launcher", Q(tool)) + " wait");
+                    T.Eq(File.ReadAllLines(log).Length, 2, "a refused bundle falls back to the plain launch");
+                    T.Eq(File.ReadAllLines(log)[1], "-s com.samsung.tv.csfs", "the fallback is the plain launch");
                 }
                 finally { Directory.Delete(dir, true); }
+            });
+
+            T.Run("ordinary system apps retain error-only fallback and single-target launches", () =>
+            {
+                string dir = Path.Combine(Path.GetTempPath(), "vetro-launch-" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(dir);
+                try
+                {
+                    string tool = Path.Combine(dir, "launcher"), log = Path.Combine(dir, "calls");
+                    string command = SystemLaunch.Command("org.example.primary", "org.example.fallback").Replace("/usr/bin/app_launcher", Q(tool));
+                    File.WriteAllText(tool, "#!/bin/sh\necho \"$2\" >> " + Q(log) + "\nexit 0\n");
+                    Shell("chmod +x " + Q(tool)); Shell(command + " wait");
+                    T.Eq(string.Join(",", File.ReadAllLines(log)), "org.example.primary", "successful ordinary app does not launch its fallback");
+                    File.Delete(log);
+                    File.WriteAllText(tool, "#!/bin/sh\necho \"$2\" >> " + Q(log) + "\n[ \"$2\" != org.example.primary ]\n");
+                    Shell(command + " wait");
+                    T.Eq(string.Join(",", File.ReadAllLines(log)), "org.example.primary,org.example.fallback", "failed ordinary app still tries its fallback");
+                    File.Delete(log);
+                    Shell(SystemLaunch.Command("com.samsung.tv.csfs", null, "/nonexistent/get_root_app").Replace("/usr/bin/app_launcher", Q(tool)) + " wait");
+                    T.Eq(string.Join(",", File.ReadAllLines(log)), "com.samsung.tv.csfs", "Home launches First Screen once on 2021 firmware");
+                }
+                finally { Directory.Delete(dir, true); }
+            });
+
+            T.Run("volume pill: four edges, 96 px safe margin, parts inside the body, unknown edge falls back to left", () =>
+            {
+                T.True(VolumePlacement.ParseEdge("right") == VolumeEdge.Right && VolumePlacement.ParseEdge(" TOP ") == VolumeEdge.Top, "edge names");
+                T.True(VolumePlacement.ParseEdge("bottom") == VolumeEdge.Bottom && VolumePlacement.ParseEdge("nonsense") == VolumeEdge.Left && VolumePlacement.ParseEdge(null) == VolumeEdge.Left, "default is left");
+                T.True(VolumePlacement.ParseEdge("hidden") == VolumeEdge.Hidden, "hidden: the level changes, no bar");
+                var left = VolumePlacement.For(VolumeEdge.Left, 1920, 1080); var right = VolumePlacement.For(VolumeEdge.Right, 1920, 1080);
+                var top = VolumePlacement.For(VolumeEdge.Top, 1920, 1080); var bottom = VolumePlacement.For(VolumeEdge.Bottom, 1920, 1080);
+                T.Eq(left.BodyX, 96, "left margin"); T.Eq(1920 - (right.BodyX + right.BodyW), 96, "right margin");
+                T.Eq(top.BodyY, 96, "top margin"); T.Eq(1080 - (bottom.BodyY + bottom.BodyH), 96, "bottom margin");
+                T.True(left.Vertical && right.Vertical && !top.Vertical && !bottom.Vertical, "side edges are vertical");
+                T.Eq(left.BodyY * 2 + left.BodyH, 1080, "vertical pill centred"); T.Eq(bottom.BodyX * 2 + bottom.BodyW, 1920, "horizontal pill centred");
+                foreach (var p in new[] { left, right, top, bottom })
+                {
+                    T.True(p.TrackX >= p.BodyX && p.TrackX + p.TrackW <= p.BodyX + p.BodyW && p.TrackY >= p.BodyY && p.TrackY + p.TrackH <= p.BodyY + p.BodyH, "track inside the body");
+                    T.True(p.IconX >= p.BodyX && p.IconX + VolumePlacement.IconSize <= p.BodyX + p.BodyW && p.IconY >= p.BodyY && p.IconY + VolumePlacement.IconSize <= p.BodyY + p.BodyH, "icon inside the body");
+                    T.True(p.WinX <= p.BodyX - 2 && p.WinY <= p.BodyY - 2 && p.WinX + p.WinW >= p.BodyX + p.BodyW + 2 && p.WinY + p.WinH >= p.BodyY + p.BodyH + 2, "window holds the 2 px light edge");
+                    T.True(p.TrackW >= 64 || p.TrackH >= 64, "track keeps its capsule");
+                }
+                T.True(left.TrackY + left.TrackH <= left.IconY, "icon sits below the vertical track"); T.True(left.NumberCenterY < left.TrackY, "number sits above the vertical track");
+                T.True(bottom.NumberRight > bottom.TrackX + bottom.TrackW, "number sits right of the horizontal track");
+            });
+
+            T.Run("audio output: TV speakers first, audio devices only, the connected one on top", () =>
+            {
+                var paired = new List<BondedDevice>
+                {
+                    new BondedDevice { Address = "A", Name = "zeta", Connected = false, MajorClass = 4 },
+                    new BondedDevice { Address = "B", Name = "Remote", Connected = true, MajorClass = 5 },      // a remote: not a sound device
+                    new BondedDevice { Address = "C", Name = "Beam", Connected = false, MajorClass = 4 },
+                    new BondedDevice { Address = "D", Name = "Unclassed", Connected = false, MajorClass = 0 },  // class not reported: kept
+                    new BondedDevice { Address = null, Name = "No address", MajorClass = 4 }
+                };
+                var none = OutputPickerModel.Build(paired);
+                T.Eq(string.Join(",", none.ConvertAll(r => r.Label).ToArray()), "TV speakers,Beam,Unclassed,zeta", "rows with nothing connected");
+                T.True(none[0].Active && !none[1].Active, "TV speakers play when no device is connected");
+                paired[0].Connected = true;
+                var one = OutputPickerModel.Build(paired, 5);
+                T.Eq(string.Join(",", one.ConvertAll(r => r.Label).ToArray()), "TV speakers,zeta,Beam,Unclassed", "the connected device comes first");
+                T.True(!one[0].Active && one[1].Active && one[1].Connected, "sound output on Bluetooth: the device plays, the TV speakers do not");
+                var onTv = OutputPickerModel.Build(paired, 0);
+                T.True(onTv[0].Active && !onTv[1].Active && onTv[1].Connected, "connected but the sound output is the TV speaker: the TV plays, the device is only connected");
+                T.True(OutputPickerModel.Build(paired, 6)[1].Active && OutputPickerModel.Build(paired, -1)[1].Active, "6 reads as Bluetooth; unknown with a connected device assumes it plays");
+                T.True(OutputPickerModel.Build(null, 5)[0].Active, "Bluetooth selected but nothing connected: the TV plays");
+                T.Eq(OutputPickerModel.Build(null).Count, 1, "no list: only the TV speakers");
+                var withPort = OutputPickerModel.Build(paired, 5, true, -1, true);
+                var portRow = withPort.Find(r => r.Kind == OutputKind.External);
+                T.True(portRow != null && portRow.Label == "Optical" && portRow.Selection == 1 && !portRow.Active, "a TV with an optical port offers Optical before the sound has been there (Q70BA)");
+                T.Eq(OutputPickerModel.ActionFor(portRow), OutputAction.UseExternal, "choosing it sets output 1");
+                T.True(OutputPickerModel.Build(paired, 5, true, -1, false).Find(r => r.Kind == OutputKind.External) == null, "no optical port: no Optical row");
+                T.Eq(OutputPickerModel.Build(paired, 1, true, -1, true).FindAll(r => r.Kind == OutputKind.External).Count, 1, "on optical: one Optical row, not two");
+                T.Eq(OutputPickerModel.Build(paired, 9, true, -1, true).FindAll(r => r.Kind == OutputKind.External).Count, 1, "on TV + optical: no second optical row");
+                var receiverAndPort = OutputPickerModel.Build(paired, 0, true, 2, true).FindAll(r => r.Kind == OutputKind.External);
+                T.True(receiverAndPort.Count == 2 && receiverAndPort[0].Selection == 2 && receiverAndPort[1].Selection == 1, "a receiver seen before and the optical port: both offered");
+                T.True(OutputPickerModel.Build(paired, -1, true, -1, true).Find(r => r.Kind == OutputKind.External) == null, "output unknown: nothing extra");
+                var optical = OutputPickerModel.Build(paired, 1);
+                T.True(!optical[0].Active && optical[1].Kind == OutputKind.External && optical[1].Label == "Optical" && optical[1].Active, "optical (1): its own ticked row, the TV speakers unticked");
+                T.Eq(OutputPickerModel.ActionFor(optical[1]), OutputAction.None, "the external output that plays cannot be chosen again");
+                T.True(OutputPickerModel.Build(null, 2)[1].Label == "Receiver (HDMI)" && OutputPickerModel.ExternalName(0) == null && OutputPickerModel.ExternalName(5) == null, "route names");
+                T.True(OutputPickerModel.VetroSetsLevel(0) && OutputPickerModel.VetroSetsLevel(-1) && OutputPickerModel.VetroSetsLevel(4), "Vol stays with Vetro on TV speakers, unknown, Wi-Fi");
+                T.True(!OutputPickerModel.VetroSetsLevel(5) && !OutputPickerModel.VetroSetsLevel(6), "Bluetooth headphones get Vol from Samsung (LS03B 2026-11-20)");
+                T.True(!OutputPickerModel.VetroSetsLevel(2) && !OutputPickerModel.VetroSetsLevel(8) && !OutputPickerModel.VetroSetsLevel(12) && !OutputPickerModel.VetroSetsLevel(17), "a receiver on HDMI gets Vol from Samsung");
+                T.True(!OutputPickerModel.VetroSetsLevel(1) && !OutputPickerModel.VetroSetsLevel(9) && !OutputPickerModel.VetroSetsLevel(11) && !OutputPickerModel.VetroSetsLevel(18), "an optical soundbar gets Vol from Samsung (S95C, S90D, S90F 2026-11-20)");
+                // The S95C on optical chose TV speakers and lost its Optical row: the output last seen playing stays, not ticked, and can be chosen again.
+                var back = OutputPickerModel.Build(paired, 0, true, 1);
+                T.Eq(string.Join(",", back.ConvertAll(r => r.Label).ToArray()), "TV speakers,Optical,zeta,Beam,Unclassed,Turn off screen", "optical keeps its row after TV speakers");
+                T.True(back[0].Active && !back[1].Active && back[1].Selection == 1, "TV speakers ticked, Optical offered with its number");
+                T.Eq(OutputPickerModel.ActionFor(back[1]), OutputAction.UseExternal, "choosing Optical again selects it");
+                T.Eq(OutputPickerModel.Build(paired, 5, false, 1)[1].Label, "Optical", "also while a Bluetooth device plays");
+                T.Eq(OutputPickerModel.Build(paired, -1, false, 1).Exists(r => r.Kind == OutputKind.External), false, "an unread output offers nothing");
+                T.Eq(OutputPickerModel.Build(null, 0, false, 4).Count, 1, "a Wi-Fi speaker is not offered again (Samsung's list never selects 4 this way)");
+                T.Eq(OutputPickerModel.Build(null, 2, false, 1)[1].Label, "Receiver (HDMI)", "the one playing wins over the remembered one");
+                T.Eq(OutputPickerModel.ActionFor(new OutputEntry { Kind = OutputKind.External, Label = "x", Selection = 4 }), OutputAction.None, "no switch to an output that cannot be chosen");
+                var withOff = OutputPickerModel.Build(paired, 5, true);
+                T.Eq(withOff[withOff.Count - 1].Kind, OutputKind.ScreenOff, "Turn off screen is the last row");
+                T.True(!withOff[withOff.Count - 1].Active && withOff[1].Active, "the screen row is never ticked and does not move the tick");
+                T.True(!OutputPickerModel.HasDevices(OutputPickerModel.Build(null, -1, true)) && OutputPickerModel.HasDevices(withOff), "the screen row is not a paired speaker");
+            });
+
+            T.Run("audio output: what a choice does", () =>
+            {
+                var rows = new List<OutputEntry> { new OutputEntry { Kind = OutputKind.TvSpeaker, Label = "TV", Active = true } };
+                for (int i = 0; i < 3; i++) rows.Add(new OutputEntry { Kind = OutputKind.Bluetooth, Label = "d" + i, Address = "a" + i });
+                T.Eq(OutputPickerModel.ActionFor(rows[0]), OutputAction.None, "the one that plays: nothing to do");
+                T.Eq(OutputPickerModel.ActionFor(rows[3]), OutputAction.Connect, "a device that is not connected is connected first");
+                rows[3].Connected = true;
+                T.Eq(OutputPickerModel.ActionFor(rows[3]), OutputAction.UseBluetooth, "a connected device that is not playing: select it");
+                rows[0].Active = false;
+                T.Eq(OutputPickerModel.ActionFor(rows[0]), OutputAction.UseTv, "the TV speakers: select them");
+                T.Eq(OutputPickerModel.ActionFor(null), OutputAction.None, "no row, no action");
+                T.Eq(OutputPickerModel.ActionFor(new OutputEntry { Kind = OutputKind.ScreenOff, Label = "x" }), OutputAction.ScreenOff, "the last row turns the screen off");
             });
         }
     }

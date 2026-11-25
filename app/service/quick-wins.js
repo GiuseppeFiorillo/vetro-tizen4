@@ -3,7 +3,27 @@
 // or stops the TV from changing itself. Verified against the Q80A firmware (T-NKM2DEUC-2301.1)
 // by reading its files; the effect of each change on a running TV has not been measured.
 //
-//   firmware  Support > Software Update > Auto update. A vconf int: 1 = on, 0 = off.
+//   firmware  Not just "Auto update". The menu value (db/menu/support/softwareupdate/autoupdate) is read by the
+//             SWU daemons, but it does not stop the background loop: SWUAutoUpgrade still chooses a background
+//             strategy when it is 0, and three other services never look at it at all (app/package updates,
+//             EMP/app-binary updates, VD system components). So this win blocks the whole update stack while it is
+//             on: the SWU units, the Web App Service background updater, the EMP/app-binary manager, the VD system
+//             update manager, the preview updater and the boot-time staged-image apply; it also turns the two vconf
+//             switches off and removes the download markers. Masking is --runtime (the rootfs is mounted ro) and is
+//             re-applied after every boot. The installers (swu-core-tv, swu-service) are stopped as well as masked:
+//             the firmware has two complete boot slots (PLATFORM0/1, KERNEL0/1 in etc/include/partition.txt on 6.0,
+//             6.5 and 9), so an interrupted write cannot damage the slot the TV is running, and SWU applies the image
+//             while it downloads. The lock is also put in place before the TV's own boot services: AT-HUB runs
+//             /opt/etc/parseinfo.sh as root at ~10 s, before the SWU timer (120 s) and the path-activated updaters,
+//             so while the win is on that vendor script is replaced by a small awk one that applies the same lock
+//             (the original is kept as parseinfo.sh.vetro-orig and restored when the win is turned off). It acts only
+//             while the choice is saved and the app is still installed; it is installed only where the file is the
+//             known one (or a bash script that writes /proc/target_version); on other firmware the lock still starts
+//             with Vetro's root agent. swu-standalone.* is left alone: it is the USB recovery path.
+//             Evidence: topics/firmware-update-channels.md in the private wiki (dump + live Q80A, 2026-11-19 and
+//             2026-11-20). Tried on a Q80A fw 2310.0 after a cold reboot: the masks were in place 15 s after boot,
+//             before Vetro's service; other models are not tried. A firmware update that lands anyway replaces
+//             everything this win did.
 //   multiscreen  Samsung's own unit com.samsung.tv.multiscreen.service has ConditionPathExists=! on
 //             .../data/disable_preloading, so that file stops the preload at boot. The first Multi View
 //             after that starts cold. Nothing is replaced: removing the file puts everything back.
@@ -49,6 +69,31 @@ var BTIME_RE = /^btime (\d+)$/m;
 
 var FILE = '/opt/usr/home/owner/share/vetro-quick-wins.json';
 var AUTOUPDATE = 'db/menu/support/softwareupdate/autoupdate';
+// Every service that can change the TV's own software. SWU: OTA/OTN firmware (timer, path, verifier, downloader,
+// installer). was-background-update: app/package updates pushed in the background. fw-update-service and
+// appbinary-manager: app-binary (EMP) downloads. vdsystem-update-manager: VD system components. preview-updater:
+// Samsung's preview app. bootmode-system-update: applies an already staged image at boot.
+var FWUNITS = ['swu-auto-upgrade.timer', 'swu-auto-upgrade.path', 'swu-auto-upgrade.service',
+    'swu-verifier-tv.timer', 'swu-verifier-tv.service', 'swu-core-tv.service', 'swu-service.service',
+    'was-background-update.path', 'was-background-update.service', 'fw-update-service.path', 'fw-update-service.service',
+    'appbinary-manager.service', 'vdsystem-update-manager.timer', 'vdsystem-update-manager.service',
+    'com.samsung.tv.preview-updater.service', 'bootmode-system-update.service'];
+// Present on 6.0 and later; missing keys stay untouched.
+var FWSERVICE = 'db/fw-update-service/service_onoff';
+// Files the update stacks look at before they download or install. All on tmpfs; removing them is harmless.
+var FWMARKERS = ['/tmp/fw_update_ready', '/tmp/.fw_download_ready', '/run/user/5001/.swu-auto-upgrade-launch'];
+// The four markers the boot waits for (system graphical, user default, system delayed, user delayed). Creating them at
+// ~10 s lets wait-target-done return immediately; the vendor units still fail, so their targets are not delayed.
+var BOOT_MARKERS = ['/run/systemd/system/graphical.target.done', '/run/systemd/system/delayed.target.done',
+    '/run/user/5001/systemd/default.target.done', '/run/user/5001/systemd/delayed.target.done'];
+// The early root execution point (AT-HUB.service, ~10 s). The vendor script only writes /proc/target_version; the
+// replacement does the same and applies quick boot and/or the update lock before the boot continues.
+var FW_HOOK = '/opt/etc/parseinfo.sh';
+var FW_HOOK_BAK = FW_HOOK + '.vetro-orig';
+var FW_HOOK_MARK = 'VETRO_UPDATE_LOCK_HOOK';
+// parseinfo.sh of the Q80A dump and live Q80A (805 bytes); other firmware is accepted only if it is still the same
+// kind of script (bash, /proc/target_version, small), because the replacement is written over it.
+var FW_HOOK_SHA = 'c6369e7dec69408e176daa252d436acf6f8e265f560504d8bd831c8023c71d61';
 var MULTISCREEN_ID = 'com.samsung.tv.multiscreen';
 var MULTISCREEN_FLAG = '/home/owner/apps_rw/com.samsung.tv.multiscreen/data/disable_preloading';
 var AMBIENT_ID = 'org.tizen.ambientapp';
@@ -125,8 +170,8 @@ var AIRPLAY_OFF = 'set -e\ntouch ' + AIRPLAY_FLAGS.join(' ') + '\n' +
     'sleep 1\n' + AIRPLAY_WEB_STOP + '\nsleep 1\ntrue';
 var AIRPLAY_ON = 'rm -f ' + AIRPLAY_FLAGS.join(' ') + '\nsystemctl reset-failed ' + AIRPLAY_UNITS[1] + '.service >/dev/null 2>&1\n' +
     AIRPLAY_UNITS.map(function (u) { return 'systemctl start --no-block ' + u + '.service >/dev/null 2>&1 || true'; }).join('\n') + '\nsleep 1\ntrue';
-var IDS = ['firmware', 'multiscreen', 'ambient', 'telemetry', 'airplay'];
-var BOOT_POLL_MS = 10000, BOOT_POLLS = 36, TELEMETRY_RETRY_MS = 45000;
+var IDS = ['firmware', 'quickboot', 'multiscreen', 'ambient', 'telemetry', 'airplay'];
+var BOOT_POLL_MS = 10000, BOOT_POLLS = 36, TELEMETRY_RETRY_MS = 45000, FIRMWARE_RETRY_MS = 30000;
 
 function wrap(s) { return 'echo ' + Buffer.from(s).toString('base64') + ' | base64 -d | sh'; }
 function check(r) {
@@ -142,6 +187,8 @@ function stop(id) {
 
 var READ = [
     'echo "AU|$(vconftool get ' + AUTOUPDATE + ' 2>&1)"',
+    'echo "FWS|$(vconftool get ' + FWSERVICE + ' 2>&1)"',
+    'systemctl show -p Id -p LoadState -p ActiveState ' + FWUNITS.join(' ') + ' 2>/dev/null | awk -F= \'/^Id=/{id=$2} /^LoadState=/{l=$2} /^ActiveState=/{print "LS|" id "|" l "|" $2}\'',
     '[ -e ' + MULTISCREEN_FLAG + ' ] && echo "MS|1" || echo "MS|0"',
     running(MULTISCREEN_ID) + ' && echo "MR|1" || echo "MR|0"',
     running(AMBIENT_ID) + ' && echo "AR|1" || echo "AR|0"',
@@ -152,16 +199,19 @@ var READ = [
     AIRPLAY_EACH('[ -e ' + TELEMETRY_DIR + '$u ] || f=0', 'f=1') + ' echo "AF|$f"',
     AIRPLAY_EACH('systemctl is-active $u.service >/dev/null 2>&1 && a=active', 'a=inactive') + ' echo "AS|$a"',
     AIRPLAY_WEB_RUNNING + ' && echo "AW|1" || echo "AW|0"',
+    '[ -f ' + FW_HOOK + ' ] && grep -q ' + FW_HOOK_MARK + ' ' + FW_HOOK + ' 2>/dev/null && echo "QB|1" || echo "QB|0"',
     'true'
 ].join('\n');
 
 // Everything the wins depend on, from one read-only call. A line that is missing stays null.
 function parse(text) {
-    var out = {autoupdate: null, multiscreenFlag: null, multiscreenRunning: null, ambientRunning: null, telemetryBrakes: null, telemetryRunning: null,
-        airplayPresent: null, airplayFlag: null, airplayService: null, airplayWeb: null};
+    var out = {autoupdate: null, fwService: null, fwUnits: {}, multiscreenFlag: null, multiscreenRunning: null, ambientRunning: null, telemetryBrakes: null, telemetryRunning: null,
+        airplayPresent: null, airplayFlag: null, airplayService: null, airplayWeb: null, quickbootHook: null};
     String(text || '').split('\n').forEach(function (line) {
         var f = line.replace(CR_END_RE, '').split('|');
         if (f[0] === 'AU') { var m = VCONF_INT32_RE.exec(f.slice(1).join('|')); if (m) out.autoupdate = Number(m[1]); }
+        else if (f[0] === 'FWS') { var n = VCONF_INT32_RE.exec(f.slice(1).join('|')); if (n) out.fwService = Number(n[1]); }
+        else if (f[0] === 'LS' && f[1]) out.fwUnits[f[1]] = {load: f[2] || '', active: f[3] || ''};
         else if (f[0] === 'MS') out.multiscreenFlag = f[1] === '1';
         else if (f[0] === 'MR') out.multiscreenRunning = f[1] === '1';
         else if (f[0] === 'AR') out.ambientRunning = f[1] === '1';
@@ -171,6 +221,7 @@ function parse(text) {
         else if (f[0] === 'AF') out.airplayFlag = f[1] === '1';
         else if (f[0] === 'AS') out.airplayService = (f[1] || '').trim() === 'active';
         else if (f[0] === 'AW') out.airplayWeb = f[1] === '1';
+        else if (f[0] === 'QB') out.quickbootHook = f[1] === '1';
     });
     return out;
 }
@@ -208,11 +259,14 @@ Wins.prototype.load = function () {
         var o = JSON.parse(this.fs.readFileSync(this.file, 'utf8'));
         return {
             hbbtv: o.hbbtv === true, ambient: o.ambient === true, telemetry: o.telemetry === true, telemetryDns: o.telemetryDns === true, airplay: o.airplay === true,
+            firmware: o.firmware === true, quickboot: o.quickboot === true,
             telemetryBoot: typeof o.telemetryBoot === 'string' ? o.telemetryBoot : null,
             autoupdatePrevious: Number.isInteger(o.autoupdatePrevious) && o.autoupdatePrevious > 0 ? o.autoupdatePrevious : null,
+            fwServicePrevious: Number.isInteger(o.fwServicePrevious) ? o.fwServicePrevious : null,
+            firmwareBoot: typeof o.firmwareBoot === 'string' ? o.firmwareBoot : null,
             ambientBoot: typeof o.ambientBoot === 'string' ? o.ambientBoot : null
         };
-    } catch (e) { return {hbbtv: false, ambient: false, telemetry: false, telemetryDns: false, airplay: false, telemetryBoot: null, autoupdatePrevious: null, ambientBoot: null}; }
+    } catch (e) { return {hbbtv: false, ambient: false, telemetry: false, telemetryDns: false, airplay: false, firmware: false, quickboot: false, telemetryBoot: null, autoupdatePrevious: null, fwServicePrevious: null, firmwareBoot: null, ambientBoot: null}; }
 };
 Wins.prototype.save = function (patch) {
     var next = Object.assign(this.load(), patch), tmp = this.file + '.tmp';
@@ -234,7 +288,7 @@ Wins.prototype.read = function () {
     var dnsAsked = mine.telemetry && self.dns ? self.dns.status().then(function (d) { return !!(d.enabled && d.applied && d.domains.indexOf(TELEMETRY_HOST) >= 0); }, function () { return null; }) : null;
     return read.then(function (r) {
         var s = parse(check(r));
-        var firmware = s.autoupdate === null ? {status: 'unknown'} : {status: s.autoupdate === 0 ? 'on' : 'off', value: s.autoupdate};
+        var firmware = s.autoupdate === null ? {status: 'unknown'} : fwState(s);
         var multiscreen = s.multiscreenFlag === null ? {status: 'unknown'} : {status: s.multiscreenFlag ? 'on' : 'off', running: s.multiscreenRunning === true};
         var ambient = s.ambientRunning === null ? {status: 'unknown'}
             : {status: !mine.ambient ? 'off' : s.ambientRunning ? 'partial' : 'on', running: s.ambientRunning, chosen: mine.ambient};
@@ -244,7 +298,9 @@ Wins.prototype.read = function () {
         var airplay = s.airplayPresent !== true || s.airplayFlag === null ? {status: 'unknown'}
             : {status: !s.airplayFlag ? 'off' : (s.airplayService || s.airplayWeb) ? 'partial' : 'on',
                running: s.airplayService === true || s.airplayWeb === true};
-        var wins = {firmware: firmware, multiscreen: multiscreen, ambient: ambient, telemetry: telemetry, airplay: airplay};
+        var quickboot = s.quickbootHook === null ? {status: 'unknown'}
+            : {status: !mine.quickboot ? 'off' : s.quickbootHook ? 'on' : 'partial'};
+        var wins = {firmware: firmware, quickboot: quickboot, multiscreen: multiscreen, ambient: ambient, telemetry: telemetry, airplay: airplay};
         if (!dnsAsked) return {ts: Date.now(), wins: wins};
         return dnsAsked.then(function (blocked) { telemetry.dnsBlocked = blocked; return {ts: Date.now(), wins: wins}; });
     });
@@ -257,33 +313,228 @@ Wins.prototype.apply = function (id, on) {
     if (this.busy) return Promise.reject(Error('A quick win is already being changed'));
     this.busy = true; this.changing = id;
     var task = Promise.resolve().then(function () {
-        return id === 'firmware' ? self.firmware(on) : id === 'multiscreen' ? self.multiscreen(on) : id === 'telemetry' ? self.telemetry(on) : id === 'airplay' ? self.airplay(on) : self.ambient(on);
+        return id === 'firmware' ? self.firmware(on) : id === 'quickboot' ? self.quickboot(on) : id === 'multiscreen' ? self.multiscreen(on) : id === 'telemetry' ? self.telemetry(on) : id === 'airplay' ? self.airplay(on) : self.ambient(on);
     });
     return task.then(function (result) { self.busy = false; self.changing = null; return result; }, function (e) { self.busy = false; self.changing = null; throw e; });
 };
 
-// Auto update: readback after the write, and the previous value is put back if the TV does not confirm it.
+// The units cannot be renamed (the rootfs is mounted ro) and a plain "disable" is overridden by their targets, so they
+// are masked at runtime: /run/systemd/system is tmpfs, systemd honours it at once, and the mask is gone on reboot
+// (bootFirmware puts it back). swu-standalone stays out of the list: it is the USB recovery path.
+function fwState(s) {
+    var known = 0, masked = 0, running = 0;
+    FWUNITS.forEach(function (u) {
+        var x = s.fwUnits && s.fwUnits[u];
+        if (!x || !x.load || x.load === 'not-found') return;
+        known++;
+        if (x.load === 'masked') masked++;
+        if (x.active === 'active' || x.active === 'activating') running++;
+    });
+    // No service_onoff key means this TV has no EMP/app-binary service: that half is then not required.
+    var serviceOk = s.fwService === null || s.fwService === 0;
+    var on = s.autoupdate === 0 && serviceOk && (known === 0 || masked === known);
+    // Off means no lock of Vetro's: no unit masked. Samsung's own Auto update value is then the owner's setting, whatever it is.
+    // Firmware without any of the units falls back to the 0.5.0 meaning, the Auto update value alone.
+    var off = known === 0 ? s.autoupdate !== 0 : masked === 0;
+    return {status: s.autoupdate === null ? 'unknown' : on ? 'on' : off ? 'off' : 'partial',
+        value: s.autoupdate, masked: masked, units: known, running: running};
+}
+
+// Only the boot-mode oneshot is never stopped: it is already isolating system-update.target, so a stop would not
+// cancel it and only the next boot matters, where the mask is in place. The installers are stopped as well (the two
+// boot slots make it safe); masked, a unit cannot start again.
+var FW_NOSTOP = ['bootmode-system-update.service'];
+function fwStoppable() { return FWUNITS.filter(function (u) { return FW_NOSTOP.indexOf(u) < 0; }); }
+function fwMaskScript(stop) {
+    // --runtime only: a plain mask would be written to /etc and outlive Vetro (and Restore), so a TV whose /etc is writable could
+    // never update again. A unit that cannot be masked at runtime shows in the readback as not masked.
+    // Masks first, then the stops, so a timer cannot start its unit again in between. One mask call for all units: each call reloads
+    // systemd (~2 s at boot on the Q80A, 16 calls took 12.5 -> 39.3 s and swu-verifier-tv ran meanwhile); systemd 244 masks a unit
+    // this firmware lacks with a warning and rc 0, and the per-unit loop is only the fallback.
+    return 'set +e\n' +
+        'systemctl mask --runtime ' + FWUNITS.join(' ') + ' >/dev/null 2>&1 || for u in ' + FWUNITS.join(' ') + '; do systemctl mask --runtime $u >/dev/null 2>&1; done\n' +
+        (stop ? 'for u in ' + fwStoppable().join(' ') + '; do systemctl stop --no-block $u >/dev/null 2>&1; done\n' : '') +
+        'rm -f ' + FWMARKERS.join(' ') + ' 2>/dev/null\n' +
+        'true';
+}
+function fwUnmaskScript() {
+    return 'set +e\n' +
+        'systemctl unmask --runtime ' + FWUNITS.join(' ') + ' >/dev/null 2>&1\n' +
+        'systemctl reset-failed ' + FWUNITS.join(' ') + ' >/dev/null 2>&1\n' +
+        // Start again what the boot sequence would have started; the rest comes back through D-Bus when needed.
+        'systemctl start --no-block swu-auto-upgrade.timer swu-verifier-tv.service was-background-update.path ' +
+        'fw-update-service.path vdsystem-update-manager.timer appbinary-manager.service >/dev/null 2>&1\n' +
+        'true';
+}
+function fwSet(key, value) {
+    return 'vconftool set -f -t int ' + key + ' ' + value + ' >/dev/null 2>&1';
+}
+
+// The AT-HUB hook (see the header): quick boot's four markers and/or the update lock at ~10 s, then the vendor
+// behaviour (the /proc/target_version write). Each part runs only while its saved choice is on and Vetro is
+// installed, so turning the wins off, Restore the TV or removing the app stops the next boot from acting.
+function fwHookScript() {
+    return '#!/usr/bin/awk -f\n' +
+        '# ' + FW_HOOK_MARK + ' - Vetro applies quick boot and/or the update lock before the boot continues.\n' +
+        '# The replaced vendor script is kept in ' + FW_HOOK_BAK + ' and put back when the win is turned off.\n' +
+        'BEGIN {\n' +
+        '    lock = 0; boot = 0\n' +
+        '    if (system("[ -d /opt/usr/apps/vetrotvapp ]") == 0) {\n' +
+        '        while ((getline l < "' + FILE + '") > 0) { if (l ~ /"firmware"[ \\t]*:[ \\t]*true/) lock = 1; if (l ~ /"quickboot"[ \\t]*:[ \\t]*true/) boot = 1 }\n' +
+        '        close("' + FILE + '")\n' +
+        '    }\n' +
+        '    if (boot) {\n' +
+        '        system("/usr/bin/touch ' + BOOT_MARKERS.join(' ') + ' 2>/dev/null")\n' +
+        // 6.5/9 replaced the default-target file unit with an lwipc event; setting it here is what the vendor unit does.
+        '        system("[ -x /usr/bin/ewaiter ] && /usr/bin/ewaiter -d /run/systemd/system/default.target.done >/dev/null 2>&1")\n' +
+        '    }\n' +
+        '    if (lock) {\n' +
+        '        system("/usr/bin/systemctl mask --runtime ' + FWUNITS.join(' ') + ' >/dev/null 2>&1 || for u in ' + FWUNITS.join(' ') + '; do /usr/bin/systemctl mask --runtime $u >/dev/null 2>&1; done")\n' +
+        '        system("/usr/bin/systemctl stop --no-block ' + fwStoppable().join(' ') + ' >/dev/null 2>&1")\n' +
+        '        system("/bin/rm -f ' + FWMARKERS.join(' ') + ' >/dev/null 2>&1")\n' +
+        '    }\n' +
+        '    repo = ""; model = ""\n' +
+        '    while ((getline l < "/etc/prd_info.ini") > 0) {\n' +
+        '        if (l ~ /^Build=/) { split(l,a,"="); v=a[2]; sub(/;.*/,"",v); repo=v }\n' +
+        '        if (l ~ /^Model=/) { split(l,a,"="); v=a[2]; sub(/;.*/,"",v); model=v }\n' +
+        '    }\n' +
+        '    close("/etc/prd_info.ini")\n' +
+        '    printf "__%s__%s\\n", repo, model > "/proc/target_version"\n' +
+        '    close("/proc/target_version")\n' +
+        '    exit 0\n' +
+        '}\n';
+}
+// Replaces the vendor file once; the original is copied first and restored by fwHookRemoveScript. The write is skipped
+// unless the file is the known script or a tiny bash script whose only job is the same /proc/target_version write; the
+// backup is refreshed after a firmware update so Off puts back the script that firmware shipped.
+function fwHookInstallScript() {
+    var body = Buffer.from(fwHookScript()).toString('base64');
+    return 'set +e\n' +
+        'F=' + FW_HOOK + '\n' +
+        'B=' + FW_HOOK_BAK + '\n' +
+        'H=' + body + '\n' +
+        // The standalone root daemon temporarily restores the vendor bytes while
+        // rearming. Never let the newer early-boot feature take ownership then.
+        'if [ -f /opt/vetro-root/config.json ] && [ -f /opt/vetro-root/hook.awk ]; then echo "vetro-hook: standalone root owns parseinfo"; exit 0; fi\n' +
+        'if [ ! -f "$F" ]; then echo "vetro-hook: no parseinfo"; exit 0; fi\n' +
+        // Our own hook from an earlier Vetro is brought up to this one (the backup of the vendor script is already there).
+        'if grep -q ' + FW_HOOK_MARK + ' "$F" 2>/dev/null; then echo "$H" | base64 -d > "$F.vetro" && ' +
+        'if [ "$(sha256sum "$F.vetro" | cut -d" " -f1)" = "$(sha256sum "$F" | cut -d" " -f1)" ]; then rm -f "$F.vetro"; else chmod 755 "$F.vetro" && mv "$F.vetro" "$F"; fi; ' +
+        'echo "vetro-hook: installed"; exit 0; fi\n' +
+        'S=$(sha256sum "$F" 2>/dev/null | cut -d" " -f1); OK=0\n' +
+        '[ "$S" = "' + FW_HOOK_SHA + '" ] && OK=1\n' +
+        'if [ $OK -eq 0 ] && [ "$(wc -l < "$F")" -le 8 ] && head -1 "$F" | grep -q "^#!/bin/bash" && grep -q /proc/target_version "$F" && [ "$(wc -c < "$F")" -le 4096 ]; then OK=1; fi\n' +
+        'if [ $OK -eq 0 ]; then echo "vetro-hook: unknown parseinfo"; exit 0; fi\n' +
+        'if [ -f "$B" ] && [ -n "$S" ] && [ "$(sha256sum "$B" 2>/dev/null | cut -d" " -f1)" = "$S" ]; then :; else cp -p "$F" "$B" || { echo "vetro-hook: backup failed"; exit 0; }; fi\n' +
+        'echo "$H" | base64 -d > "$F.vetro" && chmod 755 "$F.vetro" && mv "$F.vetro" "$F" && echo "vetro-hook: installed" || echo "vetro-hook: write failed"\n' +
+        'true';
+}
+// Only puts back our own replacement, so a script the owner or a firmware update changed is left alone.
+function fwHookRemoveScript() {
+    return 'set +e\n' +
+        'F=' + FW_HOOK + '\n' +
+        'B=' + FW_HOOK_BAK + '\n' +
+        'if [ -f "$B" ] && grep -q ' + FW_HOOK_MARK + ' "$F" 2>/dev/null; then cp -p "$B" "$F" && rm -f "$B" && echo "vetro-hook: restored"; ' +
+        'else echo "vetro-hook: unchanged"; fi\n' +
+        'true';
+}
+
+// Installs or removes the shared early hook according to the saved choices. true only while the hook is installed.
+Wins.prototype.ensureHook = function () {
+    var mine = this.load(), wanted = !!(mine.firmware || mine.quickboot);
+    return this.execute(wrap(wanted ? fwHookInstallScript() : fwHookRemoveScript()), 20000).then(function (r) {
+        return wanted && !!r && !r.exit_code && !r.timed_out && /vetro-hook: installed/.test(r.stdout || '');
+    }, function () { return false; });
+};
+
+// One read for the values that must be remembered, then the lock or the undo, then a readback. A failure on the way
+// in puts the previous switches and masks back; the error says what happened.
 Wins.prototype.firmware = function (on) {
     var self = this;
-    function get() {
-        return self.execute(wrap('vconftool get ' + AUTOUPDATE + ' 2>&1'), 6000).then(function (r) {
-            var m = VCONF_INT32_RE.exec(check(r));
-            if (!m) throw Error('Auto update setting unreadable');
-            return Number(m[1]);
+    function current() { return self.execute(wrap(READ), 15000).then(function (r) { return parse(check(r)); }); }
+    function setKey(key, value) { return self.execute(wrap(fwSet(key, value)), 6000); }
+    var hookOn = false;
+    // Installs the shared hook if the other win is still on; removes it only when both are off.
+    function setHook() { return self.ensureHook().then(function (v) { hookOn = v; return v; }); }
+    function lock(before) {
+        var svc = before.fwService !== null ? '\n' + fwSet(FWSERVICE, 0) : '';
+        return self.execute(wrap(fwMaskScript(true) + '\n' + fwSet(AUTOUPDATE, 0) + svc + '\ntrue'), 30000).then(function (r) {
+            if (r.exit_code || r.timed_out) throw Error('The TV refused the update lock');
+        }).then(function () { return setHook(); });
+    }
+    function undo() {
+        // Only values Vetro saved are written back: an owner who had Auto update off before the lock keeps it off.
+        var mine = self.load();
+        return self.execute(wrap(fwUnmaskScript()), 30000).then(function () { return setHook(); }).then(function () {
+            return mine.autoupdatePrevious ? setKey(AUTOUPDATE, mine.autoupdatePrevious) : null;
+        }).then(function () {
+            return mine.fwServicePrevious !== null ? setKey(FWSERVICE, mine.fwServicePrevious) : null;
         });
     }
-    function set(v) { return self.execute(wrap('vconftool set -f -t int ' + AUTOUPDATE + ' ' + v), 6000).then(check); }
-    return get().then(function (before) {
-        var target = on ? 0 : (self.load().autoupdatePrevious || 1);
-        if (before === target || (!on && before > 0)) return {id: 'firmware', changed: false, value: before};
-        if (on && before > 0) self.save({autoupdatePrevious: before});
-        return set(target).then(get).then(function (after) {
-            if (after !== target) throw Error('The TV did not keep the new value');
-            return {id: 'firmware', changed: true, previous: before, value: after};
+    return current().then(function (before) {
+        var state = fwState(before), mine = self.load();
+        // 0.5.0 turned Auto update off and saved the value it had; it masked nothing, so the switch reads off. Turning it off (Restore
+        // the TV) still puts that value back, once.
+        var leftover = !on && state.status === 'off' && !!mine.autoupdatePrevious && before.autoupdate === 0;
+        if (!leftover && (on ? state.status === 'on' : state.status === 'off')) {
+            // A TV that is already locked still gets the early hook: an upgrade can have restored the vendor script.
+            // Off also keeps it when quick boot is on, so the shared hook state is read either way.
+            return self.ensureHook().then(function (early) {
+                return {id: 'firmware', changed: false, status: state.status, value: before.autoupdate, hook: !!early};
+            });
+        }
+        // A value of 0 found now may be an earlier lock's (a reboot whose re-apply failed): the value saved then is kept.
+        if (on) self.save({firmware: true, autoupdatePrevious: before.autoupdate > 0 ? before.autoupdate : self.load().autoupdatePrevious,
+            fwServicePrevious: before.fwService > 0 ? before.fwService : self.load().fwServicePrevious});
+        else self.save({firmware: false, firmwareBoot: null});
+        return (on ? lock(before) : undo()).then(current).then(function (after) {
+            var st = fwState(after);
+            if (on && st.status !== 'on') throw Error('The TV did not keep the lock (' + st.masked + ' of ' + st.units + ' update unit' + (st.units === 1 ? '' : 's') + ' masked)');
+            if (!on && st.masked > 0) throw Error('The TV did not end the lock (' + st.masked + ' of ' + st.units + ' update unit' + (st.units === 1 ? '' : 's') + ' still masked)');
+            // The values are back: forgotten, so a later Off or Restore never writes an old value over one the owner chose since.
+            if (!on) self.save({autoupdatePrevious: null, fwServicePrevious: null});
+            return {id: 'firmware', changed: true, status: st.status, value: after.autoupdate, previous: before.autoupdate, hook: hookOn};
         }).catch(function (e) {
-            return set(before).then(get).then(function (restored) {
-                throw Error(e.message + ' · ' + (restored === before ? 'previous value restored' : 'restore not confirmed'));
+            // A lock that did not hold is not the owner's choice any more: the boot must not mask the units again.
+            // An undo that failed is locked again below, so the boot must keep re-applying it.
+            self.save(on ? {firmware: false, firmwareBoot: null} : {firmware: true});
+            // Put the switches back the way they were found: undo if the lock failed, lock again if the undo failed.
+            var back = on
+                ? self.execute(wrap(fwUnmaskScript()), 30000).then(function () { return setHook(); }).then(function () {
+                    return setKey(AUTOUPDATE, before.autoupdate).then(function () {
+                        return before.fwService !== null && before.fwService !== undefined ? setKey(FWSERVICE, before.fwService) : null;
+                    });
+                })
+                : self.execute(wrap(fwMaskScript(true) + '\n' + fwSet(AUTOUPDATE, 0) + '\ntrue'), 30000).then(function () { return setHook(); });
+            return back.then(function () { return current(); }).then(function (now) {
+                var restored = now.autoupdate === before.autoupdate && (before.fwService === null || now.fwService === before.fwService) &&
+                    (on ? fwState(now).masked === fwState(before).masked : fwState(now).status === fwState(before).status);
+                throw Error(e.message + (restored ? ' · previous state restored' : ' · restore not confirmed'));
             }, function () { throw Error(e.message + ' · restore not confirmed'); });
+        });
+    });
+};
+
+// Quick boot: create the four boot-completion markers at ~10 s (see the header). Experimental; the shared hook is
+// installed with the firmware lock, so either win keeps it and only the last one off restores the vendor script.
+Wins.prototype.quickboot = function (on) {
+    var self = this;
+    this.save({quickboot: on});
+    return this.ensureHook().then(function (installed) {
+        if (on && !installed) {
+            self.save({quickboot: false});
+            throw Error('The early boot step is not available on this TV');
+        }
+        return self.read().then(function (state) {
+            var st = state.wins.quickboot.status;
+            if ((st === 'on') !== on) {
+                if (on) {
+                    self.save({quickboot: false});
+                    return self.ensureHook().then(function () { throw Error('The TV did not keep quick boot'); });
+                }
+                throw Error('The TV did not end quick boot');
+            }
+            return {id: 'quickboot', changed: true, status: st, hook: installed};
         });
     });
 };
@@ -361,7 +612,36 @@ Wins.prototype.airplay = function (on) {
 Wins.prototype.boot = function (hbbtv) {
     var self = this, mine = this.load(), did = [], id = this.bootId();
     var start = mine.hbbtv && hbbtv ? hbbtv.enforce().then(function (r) { if (r && r.stopped) did.push('hbbtv'); }, function () {}) : Promise.resolve();
-    return Promise.all([start, self.bootTelemetry(mine, id, did), self.bootAmbient(mine, id, did), self.bootAirplay(mine, did)]).then(function () { return did; });
+    return Promise.all([start, self.bootFirmware(mine, id, did), self.bootTelemetry(mine, id, did), self.bootAmbient(mine, id, did), self.bootAirplay(mine, did)]).then(function () { return did; });
+};
+
+// Runtime masks live in /run, so after a boot the update units are free again: the lock is applied once per boot,
+// before the SWU timer (OnActiveSec=120) and the background updater can do anything. No vconf write: that persisted.
+Wins.prototype.bootFirmware = function (mine, id, did) {
+    var self = this;
+    if (!(mine.firmware || mine.quickboot) || (id && mine.firmwareBoot === id)) return Promise.resolve();
+    // bootLock (as soon as the agent is up) and boot (after the launcher) can both arrive: one run is enough.
+    if (self.fwBootBusy) return Promise.resolve();
+    self.fwBootBusy = true;
+    function chosen() {
+        var now = self.load();
+        return self.changing !== 'firmware' && self.changing !== 'quickboot' && (now.firmware || now.quickboot);
+    }
+    function pass() {
+        if (!chosen()) return Promise.resolve(false);
+        // The early hook goes in the same command: an upgrade can have put the vendor script back. Only the firmware win
+        // masks the update units; quick boot alone must leave them as they are (the vendor done units still fail).
+        var mask = self.load().firmware ? fwMaskScript(true) + '\n' : '';
+        return self.execute(wrap(mask + fwHookInstallScript()), 30000).then(function (r) { return !!r && !r.exit_code && !r.timed_out; }, function () { return false; });
+    }
+    return pass().then(function (first) {
+        return self.sleep(FIRMWARE_RETRY_MS).then(pass).then(function (second) {
+            if (!(first || second) || !chosen()) return;
+            if (mine.firmware) did.push('firmware');
+            if (mine.quickboot) did.push('quickboot');
+            if (id) self.save({firmwareBoot: id});
+        });
+    }).then(function (v) { self.fwBootBusy = false; return v; }, function (e) { self.fwBootBusy = false; throw e; });
 };
 
 Wins.prototype.bootAirplay = function (mine, did) {
@@ -385,6 +665,10 @@ Wins.prototype.bootAirplay = function (mine, did) {
     }
     return poll();
 };
+
+// The update units (and the early hook for quick boot) can act before the launcher is ready, so this half runs as soon
+// as the root agent is up.
+Wins.prototype.bootLock = function () { var did = []; return this.bootFirmware(this.load(), this.bootId(), did).then(function () { return did; }); };
 
 // Some of these services start a minute or more after the TV answers, so the stop is repeated once.
 Wins.prototype.bootTelemetry = function (mine, id, did) {
@@ -431,5 +715,5 @@ Wins.prototype.bootAmbient = function (mine, id, did) {
     return poll();
 };
 
-module.exports = {Wins: Wins, stop: stop, parse: parse, IDS: IDS, FILE: FILE, AUTOUPDATE: AUTOUPDATE, MULTISCREEN_FLAG: MULTISCREEN_FLAG, AMBIENT_ID: AMBIENT_ID, TELEMETRY_HOST: TELEMETRY_HOST, TELEMETRY_DIR: TELEMETRY_DIR, TELEMETRY_UNITS: TELEMETRY_UNITS, TELEMETRY_BRAKES: TELEMETRY_BRAKES, MULTISCREEN_ID: MULTISCREEN_ID,
-    AIRPLAY_FLAGS: AIRPLAY_FLAGS, AIRPLAY_UNITS: AIRPLAY_UNITS, TELEMETRY_OFF: TELEMETRY_OFF, TELEMETRY_ON: TELEMETRY_ON, currentBoot: currentBoot};
+module.exports = {Wins: Wins, stop: stop, parse: parse, IDS: IDS, FILE: FILE, AUTOUPDATE: AUTOUPDATE, FWSERVICE: FWSERVICE, FWUNITS: FWUNITS, FWMARKERS: FWMARKERS, FW_HOOK: FW_HOOK, fwHookScript: fwHookScript, MULTISCREEN_FLAG: MULTISCREEN_FLAG, AMBIENT_ID: AMBIENT_ID, TELEMETRY_HOST: TELEMETRY_HOST, TELEMETRY_DIR: TELEMETRY_DIR, TELEMETRY_OFF: TELEMETRY_OFF, TELEMETRY_ON: TELEMETRY_ON, TELEMETRY_UNITS: TELEMETRY_UNITS, TELEMETRY_BRAKES: TELEMETRY_BRAKES, MULTISCREEN_ID: MULTISCREEN_ID,
+    AIRPLAY_FLAGS: AIRPLAY_FLAGS, AIRPLAY_UNITS: AIRPLAY_UNITS, currentBoot: currentBoot};

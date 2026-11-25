@@ -1,0 +1,15 @@
+[Unit]
+Description=Isolated Vetro standalone test root agent
+After=starter.target systemd-tmpfiles-setup.service
+[Service]
+Type=simple
+Environment=VETRO_ROOT_REQUEST={{data}}/vetro-root-request.json
+Environment=VETRO_ROOT_PID=/tmp/vetro-standalone-root-trial.pid
+Environment=VETRO_ROOT_LOCK=/tmp/vetro-standalone-root-trial.lock
+Environment=VETRO_ROOT_LOG={{base}}/root-trial.log
+ExecStartPre=/usr/bin/node -e "console.log(require('{{base}}/runtime.js').prepare())"
+ExecStart=/usr/bin/node -e "require('{{base}}/root-daemon/root-daemon.js')"
+Restart=no
+TimeoutStopSec=5
+StandardOutput=null
+StandardError=null

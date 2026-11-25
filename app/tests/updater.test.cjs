@@ -25,8 +25,8 @@ function bundle(version, files, opts) {
 }
 
 // 1. paths and versions
-assert.ok(okPath('service/main.js') && okPath('native/dock/tvlauncher-dotnet.dll') && okPath('index.html') && okPath('payload/SamsungTvRootAgent.dll'));
-['config.xml', 'author-signature.xml', '../x', 'service/../x.js', 'service/sub/x.js', '/etc/passwd', 'native/../x', 'service/a b.js', 'native//x', 'native/x/'].forEach(n => assert.ok(!okPath(n), 'refused: ' + n));
+assert.ok(okPath('service/main.js') && okPath('native/dock/tvlauncher-dotnet.dll') && okPath('index.html') && okPath('payload/SamsungTvRootAgent.dll') && okPath('payload/net6/SamsungTvRootAgent.dll'));
+['config.xml', 'author-signature.xml', '../x', 'service/../x.js', 'service/sub/x.js', '/etc/passwd', 'native/../x', 'payload/../x', 'payload//x', 'payload/net6/', 'service/a b.js', 'native//x', 'native/x/'].forEach(n => assert.ok(!okPath(n), 'refused: ' + n));
 assert.equal(compare('0.4.1', '0.4.0'), 1); assert.equal(compare('0.4.0', '0.4.0'), 0); assert.equal(compare('0.10.0', '0.9.9'), 1); assert.equal(compare('x', '0.1.0'), null);
 
 // 2. verification
@@ -78,6 +78,14 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
     assert.equal(f.ran.length, 0, 'nothing runs when a check fails');
     assert.equal(f.u.check(bundle('0.4.1', { 'service/a.js': 'new a' })).changed, 1);
 
+    // An apply whose script never runs (the TV busy, the agent gone) leaves no Go back list behind it
+    {
+        const g = fixture('0.4.0');
+        const busy = new Updater({ publicKey: publicPem, installDir: g.install, workDir: g.work, buildInfo: { version: '0.4.0', shell: 1 }, execute: () => Promise.reject(new Error('The TV is busy')) });
+        await assert.rejects(busy.apply(bundle('0.4.1', { 'service/a.js': 'new a' })), /busy/);
+        assert.ok(!fs.existsSync(path.join(g.work, 'backup.json')), 'no backup list without the backup');
+        assert.equal(busy.status().canRollBack, false);
+    }
     // success: files replaced, a new file added, the port kept, old files backed up, watchdog stays quiet after confirm
     const next = bundle('0.4.1', { 'service/a.js': 'new a', 'service/b.js': 'new b', 'index.html': "var BASE = 'http://127.0.0.1:8099';", 'service/build-info.js': info({ version: '0.4.1', shell: 1 }) });
     const res = await f.u.apply(next, sha(Buffer.from(next)));
@@ -156,6 +164,18 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
     await f.u.rollback();
     assert.equal(f.read('service/a.js'), 'old a'); assert.ok(!fs.existsSync(path.join(f.install, 'service', 'b.js')));
     await assert.rejects(fixture('0.4.0').u.rollback(), /no previous version/);
+    // Vetro installed again with another version in between (the update folder outlives an install): the saved files are
+    // not this version's, so they are neither offered nor put back.
+    f = fixture('0.4.0');
+    await f.u.apply(next);
+    const other = new Updater({ publicKey: publicPem, installDir: f.install, workDir: f.work, buildInfo: { version: '0.4.5', shell: 1 }, execute: () => Promise.reject(new Error('unused')) });
+    assert.equal(other.status().canRollBack, false, 'a backup of another version is not offered');
+    await assert.rejects(other.rollback(), err => err.code === 'other-backup');
+    assert.equal(f.read('service/a.js'), 'new a', 'and nothing was touched');
+    assert.equal(f.u.status().canRollBack, true, 'the version it was taken from still has it');
+    const target = new Updater({ publicKey: publicPem, installDir: f.install, workDir: f.work, buildInfo: { version: '0.4.1', shell: 1 }, execute: () => Promise.reject(new Error('unused')) });
+    assert.equal(target.status().canRollBack, true, 'and so has the version it made way for');
+    await f.u.rollback();
 
     // identical files: nothing to do, nothing run
     f = fixture('0.4.0');
@@ -189,6 +209,13 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
     const done = await upDock(() => Promise.resolve('restarted'));
     assert.equal(done.state, 'updated'); assert.equal(done.dock, 'restarted');
     assert.equal(f.u.status().last.dock, 'restarted');
+    // the tuner is a native part like the launcher: a change to its files is flagged the same way, so both are restarted afterwards
+    f = fixture('0.4.0');
+    fs.mkdirSync(path.join(f.install, 'native', 'tuner'), { recursive: true });
+    fs.writeFileSync(path.join(f.install, 'native', 'tuner', 'vetro-tuner.dll'), 'old tuner');
+    await f.u.apply(bundle('0.4.1', { 'service/a.js': 'new a', 'native/tuner/vetro-tuner.dll': 'new tuner' }));
+    assert.equal(f.u.status().pending.dock, true, 'a changed tuner file counts as a native change');
+    assert.equal(fs.readFileSync(path.join(f.install, 'native', 'tuner', 'vetro-tuner.dll'), 'utf8'), 'new tuner');
     // an update that leaves the launcher alone never restarts it or stops it
     f = fixture('0.4.0');
     await f.u.apply(bundle('0.4.1', { 'service/a.js': 'new a' }));

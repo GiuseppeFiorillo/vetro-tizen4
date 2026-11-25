@@ -12,19 +12,31 @@ const dockRes = names.filter(name => name.startsWith('native/dock/res/'));
     base => assert.ok(dockRes.includes('native/dock/res/' + base + '.png'), 'dock image packaged: ' + base));
 assert.ok(dockRes.includes('native/dock/res/inputs.tsv'));
 assert.ok(dockRes.every(name => /\.(png|tsv)$/.test(name)), 'only images and the inputs list are packaged from dock/res');
-assert.deepEqual(names.filter(name => !name.startsWith('native/dock/res/')).sort(), [
+// The tuner ships its own glass pictures and the two files of the build, never Samsung's TV client DLL.
+const tunerRes = names.filter(name => name.startsWith('native/tuner/res/'));
+['veil_corner', 'progress', 'bar', 'hatch'].forEach(base => assert.ok(tunerRes.includes('native/tuner/res/' + base + '.png'), 'tuner image packaged: ' + base));
+// The osd 123's material is the same file for the launcher and the tuner: shipped once, in native/dock/res, where the tuner also looks.
+['pill_bg', 'pill_rim', 'pill_cap'].forEach(base => {
+    assert.ok(!tunerRes.includes('native/tuner/res/' + base + '.png') && dockRes.includes('native/dock/res/' + base + '.png'), 'shipped once, with the launcher: ' + base);
+    const read = dir => require('fs').readFileSync(require('path').join(__dirname, '../..', dir, 'res', base + '.png'));
+    assert.ok(read('tuner').equals(read('dock')), 'the same picture: ' + base);
+});
+['dock_bg', 'ring', 'shadow', 'solid'].forEach(base => assert.ok(!tunerRes.includes('native/tuner/res/' + base + '.png'), 'the old card material is no longer packaged: ' + base));
+assert.ok(tunerRes.every(name => /\.png$/.test(name)), 'only images are packaged from tuner/res');
+assert.ok(!names.some(name => /Tizen\.TV\.Broadcast\.TVService/i.test(name)), "Samsung's TV client is never packaged");
+assert.deepEqual(names.filter(name => !name.startsWith('native/dock/res/') && !name.startsWith('native/tuner/res/')).sort(), [
     'LICENSE', 'THIRD_PARTY_NOTICES.md', 'notices/LICENSE-phosphor.txt',
-    'config.xml', 'icon.png', 'index.html', 'native/TvState.dll', 'native/TvState.runtimeconfig.json', 'service/tv-state.js',
-    'native/dock/tvlauncher-dotnet.dll', 'native/dock/tvlauncher-dotnet.runtimeconfig.json',
-    'native/dock/tvlauncher-dotnet-2.0.dll', 'native/dock/tvlauncher-dotnet-2.0.runtimeconfig.json', 'service/dock.js', 'service/dock-catalog.js',
-    'service/auth.js', 'service/build-info.js', 'service/blocklist.js', 'service/exec-error.js', 'service/factory-apps.js', 'service/device-info.js', 'service/component-facts.js', 'service/about-photo.js','service/app-catalog.js', 'service/app-facts.js', 'service/app-groups.js','service/app-registry.js', 'service/atomic-file.js', 'service/dashboard.js', 'service/physical-input.js', 'service/presence.js', 'service/apps.js', 'service/component-actions.js','service/control.js',     'service/debloat.js', 'service/diagnostic-report.js', 'service/hbbtv.js','service/home-order.js','service/local-dns.js','service/menu-settings.js','service/main.js',
+    'config.xml', 'icon.png', 'index.html', 'native/TvState.dll', 'native/TvState.runtimeconfig.json', 'service/tv-state.js', 'service/volume-keys.js', 'service/key-routing.js',
+    'native/dock/tvlauncher-dotnet-2.0.dll', 'native/dock/tvlauncher-dotnet-2.0.runtimeconfig.json', 'native/dock/tvlauncher-dotnet.dll', 'native/dock/tvlauncher-dotnet.runtimeconfig.json', 'service/dock.js', 'service/dock-catalog.js',
+    'native/tuner/vetro-tuner.dll', 'native/tuner/vetro-tuner.runtimeconfig.json', 'service/tuner.js', 'service/plugin-tuner.js', 'service/tuner-page.js', 'service/vetro-ui.js', 'service/osd-page.js',
+    'service/auth.js', 'service/build-info.js', 'service/blocklist.js', 'service/exec-error.js', 'service/factory-apps.js', 'service/device-info.js', 'service/component-facts.js', 'service/about-photo.js','service/app-catalog.js', 'service/app-facts.js', 'service/app-groups.js','service/app-registry.js', 'service/atomic-file.js', 'service/dashboard.js', 'service/physical-input.js', 'service/presence.js', 'service/apps.js', 'service/component-actions.js','service/control.js',     'service/debloat.js', 'service/diagnostic-report.js', 'service/hbbtv.js','service/home-order.js','service/home-cleanup.js','service/local-dns.js','service/menu-settings.js','service/main.js',
     'service/mqtt-bridge.js', 'service/mqtt.js', 'service/compat.js', 'service/package-info.js',
     'service/platform.js', 'service/runtime-evidence.js',
     'service/plugin-host.js',
     'service/plugin-launcher.js', 'service/disabled-ledger.js', 'service/restore.js',
     'service/updater.js', 'service/update-key.js', 'service/plugin-key.js',
-    'service/privacy.js', 'service/probe.js', 'service/quick-settings.js', 'service/quick-wins.js', 'service/keep-removed.js', 'service/leftovers.js', 'service/remap.js',
-    'service/samsung-remote.js', 'service/screen-status.js', 'service/settings.js', 'service/stale-service.js', 'service/system-monitor.js','service/tv-settings.js'
+    'service/privacy.js', 'service/probe.js', 'service/quick-settings.js', 'service/quick-uninstall.js', 'service/quick-wins.js', 'service/keep-removed.js', 'service/leftovers.js', 'service/remap.js', 'service/remote-icons.js',
+    'service/samsung-remote.js', 'service/screen-controls.js', 'service/screen-status.js', 'service/settings.js', 'service/stale-service.js', 'service/system-monitor.js','service/tv-settings.js'
 ].sort());
 // A service file that requires a sibling the package does not carry crashes the whole service on the TV at start.
 files.filter(file => /^service\/[^/]+\.js$/.test(decodeURIComponent(file.uri))).forEach(file => {
@@ -43,6 +55,9 @@ assert.ok(platform.includes('app-only'));
 // The port is fixed at build time: the default package is untouched, a chosen port reaches the widget's access origin,
 // the probe page and the service, and a port the package already uses is refused.
 const text = (list, name) => list.find(file => decodeURIComponent(file.uri) === name).data.toString();
+// The package's own version (config.xml) is what the TV and Apps2Samsung see; the TV page compares it with the service's. A release
+// that bumps one and not the other shows up as "Version differs" (an older service) or as no update in the installer.
+assert.equal(/<widget\b[^>]*\sversion="([^"]+)"/.exec(text(files, 'config.xml'))[1], require('../package.json').version, 'config.xml, package.json and build-info.js carry the same version');
 assert.ok(text(files, 'config.xml').includes('http://127.0.0.1:8099"'));
 assert.ok(text(files, 'index.html').includes("var BASE = 'http://127.0.0.1:8099'"));
 assert.ok(!('port' in context.module.exports), 'the default build records no port');

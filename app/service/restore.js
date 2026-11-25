@@ -34,7 +34,7 @@ var ID = /^[A-Za-z0-9_.-]{1,180}$/;
 var BOOL = /^(true|false)$/;
 
 var NOTES = [
-    'Packages removed from the Task manager cannot be brought back from here. Install them again from the Samsung app store or from their original package.',
+    'Packages removed in Apps and processes cannot be brought back from here. Install them again from the Samsung app store or from their original package.',
     'Values written in the TV settings pages (network and TV menu) keep no record of what they were. Check them in the TV’s own menu.',
     'Changes that a third-party plugin made itself are not known to Vetro and are not undone.'
 ];
@@ -116,7 +116,8 @@ Restore.prototype.plan = function () {
         attempt(function () { return d.sdb ? d.sdb.status() : null; }),
         attempt(function () { return d.pairing ? d.pairing.status() : null; }),
         attempt(function () { return d.factoryTest ? d.factoryTest.read() : {present: false, active: false}; }),
-        attempt(function () { return d.keepRemoved ? d.keepRemoved.state() : null; })
+        attempt(function () { return d.keepRemoved ? d.keepRemoved.state() : null; }),
+        attempt(function () { return d.tuner ? d.tuner.readState() : null; })
     ]).then(function (x) {
         var apps = x[0], wins = x[1], hb = x[2], dns = x[3], home = x[4], flags = x[5], led = x[6], plug = x[7], dock = x[8], input = x[9], mqtt = x[10], factory = x[13], keep = x[14];
         var items = [];
@@ -131,6 +132,11 @@ Restore.prototype.plan = function () {
 
         var it = add('launcher', 'Launcher', 'Switches the Vetro launcher or the custom launcher off, so Samsung’s Home is back, and puts Autorun Smart Hub back as it was.', dock);
         if (!dock.error) flag(it, dock.value.enabled === true || dock.value.autorunWas != null || !!dock.value.customApp);
+
+        if (d.tuner) {
+            it = add('tuner', 'Vetro TV Tuner', 'Switches Vetro TV Tuner off, so Samsung\u2019s own tuner is on screen again. Samsung\u2019s tuner app was never changed.', x[15]);
+            if (!x[15].error) flag(it, x[15].value.enabled === true);
+        }
 
         var third = plug.error ? [] : plug.value.filter(function (p) { return !p.bundled && p.enabled; });
         it = add('plugins', 'Third-party plugins', 'Switches every plugin that is on off. The plugin files stay until you remove Vetro’s data. What a plugin changed on its own is not undone.', plug);
@@ -157,14 +163,18 @@ Restore.prototype.plan = function () {
         if (!apps.error) flag(it, groupIds.length > 0, groupIds.length);
 
         var compIds = apps.error ? [] : provenComponents(apps.value, led.error ? [] : led.value).filter(function (id) { return groupIds.indexOf(id) < 0; });
-        it = add('components', 'Components disabled in the Task manager', 'Switches on again the components Vetro disabled one by one (its own list), the verified viewing-data set and apps you installed. Components the firmware ships disabled are left alone.', apps.error ? apps : led);
+        it = add('components', 'Components disabled in Apps and processes', 'Switches on again the components Vetro disabled one by one (its own list), the verified viewing-data set and apps you installed. Components the firmware ships disabled are left alone.', apps.error ? apps : led);
         if (!apps.error) flag(it, compIds.length > 0, compIds.length);
 
         var w = wins.error ? null : wins.value.wins;
+        // Auto update off with a value saved by Vetro (0.5.0 saved it without masking anything): Restore puts that value back too.
+        var autoSaved = false;
+        try { autoSaved = !!d.wins.load().autoupdatePrevious; } catch (e) { /* unreadable: only the switch state counts */ }
         [['telemetry', 'Viewing-data and usage-log services', w && w.telemetry && w.telemetry.status !== 'off', 'Starts them again and lifts the DNS block Vetro added for the usage-log host.'],
             ['ambient', 'Ambient autostart', w && w.ambient && w.ambient.status !== 'off', 'Lets Samsung’s own start of the screen saver run again.'],
             ['multiscreen', 'Multi View autostart', w && w.multiscreen && w.multiscreen.status === 'on', 'Removes the preload file, so Multi View loads at boot again.'],
-            ['firmware', 'Automatic firmware updates', w && w.firmware && w.firmware.status === 'on', 'Puts the automatic update value back to what it was.'],
+            ['firmware', 'Firmware and software updates', w && w.firmware && (w.firmware.status !== 'off' || (autoSaved && w.firmware.value === 0)), 'Unmasks the update services and puts the automatic update value back to what it was.'],
+            ['quickboot', 'Quick boot (experimental)', w && w.quickboot && w.quickboot.status !== 'off', 'Removes the four early boot markers, so the TV starts with its normal boot step again.'],
             ['airplay', 'AirPlay receiver', w && w.airplay && w.airplay.status !== 'off', 'Removes the do-not-start files, so the AirPlay receiver can start again.']
         ].filter(function (c) {
             // A TV without the AirPlay receiver has nothing to put back, so it gets no row.
@@ -205,7 +215,7 @@ Restore.prototype.plan = function () {
         if (!factory.error) flag(it, factory.value.active === true);
 
         var changedFlags = flags.error ? [] : flags.value.filter(function (r) { return r.current !== r.backup; });
-        it = add('startup-flags', 'Start at boot and restart', 'Puts back the start-at-boot and restart values you changed in the Task manager.', flags);
+        it = add('startup-flags', 'Start at boot and restart', 'Puts back the start-at-boot and restart values you changed in Apps and processes.', flags);
         if (!flags.error) flag(it, changedFlags.length > 0, changedFlags.length);
 
         return {ok: true, ts: Date.now(), items: items, notes: NOTES.slice(),
@@ -234,9 +244,19 @@ Restore.prototype.run = function () {
                 if (d.dock.readState().customApp) return d.dock.disableCustom({keepHome: true}).then(function () { return 'Custom launcher off; Samsung’s Home comes back with the groups below.'; });
                 return d.dock.disable().then(function () { return 'Launcher off; Samsung’s Home is back.'; });
             }],
+            ['tuner', function () { return d.tuner.disable().then(function () { return 'Tuner off; Samsung\u2019s tuner is on screen again.'; }); }],
             ['plugins', function () {
-                plan._data.third.forEach(function (p) { d.plugins.setEnabled(p.id, false); });
-                return 'Switched off: ' + plan._data.third.map(function (p) { return p.name || p.id; }).join(', ') + '.';
+                var errs = [], off = [];
+                plan._data.third.forEach(function (p) {
+                    try {
+                        d.plugins.setEnabled(p.id, false);
+                        off.push(p.name || p.id);
+                    } catch (e) {
+                        errs.push((p.name || p.id) + ': ' + ((e && e.message) || String(e)));
+                    }
+                });
+                if (errs.length) throw new Error(errs.join(' · ') + (off.length ? ' · Switched off: ' + off.join(', ') : ''));
+                return 'Switched off: ' + off.join(', ') + '.';
             }],
             ['remote', function () { return Promise.resolve(d.input.off()).then(function () { return 'The remapper no longer listens to the remote.'; }); }],
             ['mqtt', function () { return Promise.resolve(d.mqtt.off()).then(function () { return 'The bridge is off.'; }); }],
@@ -247,7 +267,8 @@ Restore.prototype.run = function () {
             ['win-telemetry', function () { return self.runWin('telemetry', 'Services started again; the DNS block Vetro added is lifted.'); }],
             ['win-ambient', function () { return self.runWin('ambient', 'Samsung’s own Ambient start runs again.'); }],
             ['win-multiscreen', function () { return self.runWin('multiscreen', 'The preload file is removed.'); }],
-            ['win-firmware', function () { return self.runWin('firmware', 'Automatic update value put back.'); }],
+            ['win-firmware', function () { return self.runWin('firmware', 'Update lock removed and the automatic update value put back.'); }],
+            ['win-quickboot', function () { return self.runWin('quickboot', 'Quick boot off; the normal boot step is back.'); }],
             ['win-airplay', function () { return self.runWin('airplay', 'The AirPlay receiver can start again.'); }],
             ['keep-removed', function () { return self.runKeepRemoved(); }],
             ['hbbtv', function () { return self.runHbbtv(); }],
@@ -311,7 +332,7 @@ Restore.prototype.runComponents = function () {
         var ids = provenComponents(x[0].apps, led).filter(function (id) { return groupIds.indexOf(id) < 0; });
         if (!ids.length) return 'Nothing to switch on.';
         return d.execute(quickSettings.command(ids, false), 90000).then(function (r) {
-            if (r.timed_out) throw new Error('The TV did not finish in time');
+            if (!r || r.timed_out) throw new Error('The TV did not finish in time');
             d.invalidate();
             return d.inventory(true);
         }).then(function (after) {
@@ -345,7 +366,7 @@ Restore.prototype.runHbbtv = function () {
     var d = this.d;
     return d.hbbtv.read().then(function (s) { return d.hbbtv.change(false, s.value); }).then(function () {
         try { d.wins.remember('hbbtv', false); } catch (e) { /* the choice is only used at the next boot */ }
-        if (d.afterHbbtv) d.afterHbbtv();
+        if (d.afterHbbtv) { try { d.afterHbbtv(); } catch (e) {} }
         return 'HbbTV is back on.';
     });
 };
@@ -362,7 +383,7 @@ Restore.prototype.runFlags = function (rows) {
     });
     if (!lines.length) return Promise.resolve('Nothing to put back.');
     return d.execute(wrap(lines.join('\n')), 60000).then(function (r) {
-        if (r.timed_out) throw new Error('The TV did not finish in time');
+        if (!r || r.timed_out) throw new Error('The TV did not finish in time');
         var codes = quickSettings.exitCodes(r.stdout);
         var bad = rows.filter(function (x) { return codes[x.appId] !== 0; }).map(function (x) { return x.appId; });
         d.invalidate();
@@ -379,7 +400,7 @@ Restore.prototype.runFlags = function (rows) {
 var ERASE_SCRIPT = [
     'find ' + SHARE + ' -maxdepth 1 -name \'vetro-*\' ! -name \'vetro-auth.json\' -exec rm -rf {} + 2>/dev/null',
     'rm -rf /home/owner/share/vetro',
-    'rm -f /home/owner/tvlauncher.pid /home/owner/tvlauncher.fifo /home/owner/tvlauncher.log',
+    'rm -f /home/owner/tvlauncher.pid /home/owner/tvlauncher.fifo /home/owner/tvlauncher.log /home/owner/vetro-tuner.pid /home/owner/vetro-tuner.log /home/owner/vetro-tuner.log.prev',
     'for c in ' + homeOrder.BASE + ' ' + homeOrder.BASE_NEW_HOME + '; do rm -f "$c"/.appLayerCache.[12].vetro-bak "$c"/.appLayerCache.[12].vetro-txn "$c"/.appLayerCache.[12].vetro-missing "$c"/.appLayerCache.[12].vetro-tmp; done',
     'echo left=$(find ' + SHARE + ' -maxdepth 1 -name \'vetro-*\' ! -name \'vetro-auth.json\' | wc -l)',
     'true'

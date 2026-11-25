@@ -199,7 +199,9 @@ function refuse(req, res, url, code, body) {
     return true;
 }
 // The routes the TV page uses for its check; with pairing off they answer it from any address (as in 0.3.5).
-var PAGE_ROUTES = {'/status': true, '/probe': true, '/screen': true};
+// /screen/controls is a read: it only says what the quick controls show and whether this page may change them. The route that
+// changes things (POST /screen/control) is deliberately not here: only the TV itself or a paired browser may use it.
+var PAGE_ROUTES = {'/status': true, '/probe': true, '/screen': true, '/screen/controls': true};
 // The Origin a packaged TV page sends: opaque ("null") on the TVs we know. A TV runtime may instead send its own scheme
 // (file:, app:...); 0.3.5 never looked at it, so it is accepted too. A web site's origin is always http(s), and a
 // sandboxed frame's is "null", so this lets no web page in that "null" did not already.
@@ -300,7 +302,9 @@ function gate(req, res, url, options) {
     if (local && WIDGET_ROUTES[url] && (req.headers || {}).origin === 'null') markTvSeen();
 
     if ((url === '/auth/pair' || url === '/auth/confirm') && req.method === 'POST') {
-        if (!originOk(req)) return json(res, 403, {error: 'Cross-site request refused'}), true;
+        // Both pages that pair (sign-in, dashboard) send their own origin and scripts send none: an opaque "null" is a
+        // sandboxed frame of some other page, which must not be able to put a code on the TV (#230).
+        if (!originOk(req) || (req.headers || {}).origin === 'null') return json(res, 403, {error: 'Cross-site request refused'}), true;
         return (url === '/auth/pair' ? startPair(req, res, onPair) : confirmPair(req, res)), true;
     }
     // What the sign-in page needs after a reload: is a code waiting, and was it asked for by this browser?

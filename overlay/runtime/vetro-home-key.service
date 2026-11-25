@@ -1,0 +1,14 @@
+[Unit]
+Description=Vetro optional Home-key override with vendor fallback
+# Do not order after app-context-manager: ExecStopPost starts that service.
+# An ordering edge would make its start wait for this stop job to finish.
+After=vetro-standalone-manager.service
+[Service]
+Type=simple
+SmackProcessLabel=_
+ExecStart=/usr/bin/node -e "require('/opt/vetro-standalone-trial/home-key.js').run()"
+ExecStopPost=/usr/bin/node -e "require('/opt/vetro-standalone-trial/home-key.js').restore('service-stop')"
+Restart=no
+TimeoutStopSec=40
+StandardOutput=null
+StandardError=null

@@ -1,0 +1,37 @@
+{
+  "sourceRepository": "https://github.com/andrearicci93/vetro",
+  "sourceTag": "v0.7.0",
+  "sourceCommit": "fb83fd055681127761e322b434d82c4626a55a05",
+  "upstreamVersion": "0.7.0",
+  "portBase": {
+    "originalTag": "v0.5.0",
+    "originalCommit": "c55a01c79a4e12fe17a4c5ea9579296cb7b6f892",
+    "forkRepository": "https://github.com/GiuseppeFiorillo/vetro-tizen4",
+    "forkTag": "v0.5.0-tizen4",
+    "forkCommit": "eb63e9dd082c0f3fee9f75c0d0a078624e9790fd"
+  },
+  "candidate": false,
+  "nativeFramework": "netcoreapp2.0",
+  "nativeManifest": "native/current/manifest.json",
+  "adaptationInventory": "docs/comparison/local-0.7-changes.json",
+  "reports": [
+    "docs/0.5-PORT-COMPARISON.md",
+    "docs/UPGRADE-0.7.0.md"
+  ],
+  "tvContacted": false,
+  "usbInstallerChanged": false,
+  "hardwareValidation": {
+    "testedModel": "UE65NU7100",
+    "firmware": "T-KTM2LDEUC-1400.2",
+    "date": "2026-11-25",
+    "scope": [
+      "launcher",
+      "native Netflix and signed-in YouTube",
+      "cold boot and root rearming",
+      "cold Samsung Home USB recovery",
+      "pairing enforcement"
+    ],
+    "otherModelsTested": false,
+    "allExperimentalFeaturesTested": false
+  }
+}

@@ -13,7 +13,32 @@ focus movement, icon growth/lift and per-icon glow colours; entrance and exit fa
 
 When it is on, the Home key opens this launcher instead of Samsung's Home. The dock shows
 the same apps, in the same order and with the same icons as Samsung's Home row, read
-from the TV at start-up, and ends with two outline pills, Settings and Samsung Home.
+from the TV at start-up (then the user's own order: hold OK on a tile to move it or take it out), and ends with two
+outline pills, All apps and Samsung Home. All apps lists every app, with Settings and the store at its end (TV-Store when Vetro finds it installed, Samsung's App store otherwise).
+The fifo's `reload` reads the three lists again and makes the pages again when they changed (`ListWatch`): the launcher asks Vetro for
+it when the package database is newer than its All apps list, i.e. after an app was installed or removed.
+Up opens Sources (TV, HDMI 1-4, and DisplayPort on the Samsung monitors that have one). On All apps and on Sources, holding OK adds the entry to the end of the row or takes it
+out (`RowEdit.Toggle`, sent to Vetro with `RowEdit.Command`), and a tick marks what the row holds; a short OK opens it or
+switches to the input when the key comes up. A Sources list without row keys (written by an older Vetro) keeps OK on the
+press, has no hold and shows "Back" only.
+
+## Control center and Task manager
+
+**Down** on the apps row (or below the last pill) opens the Control center: up to three cards side by side (`--cards`,
+chosen in the dashboard): Task manager, Audio output, Picture mode, Sleep timer, and the card of a Shard (`shard:<id>` or
+`shard:<id>:<label>`, the label escaped as `=HH` UTF-8 bytes outside `[A-Za-z0-9.-]`; several Shards may have one each).
+**Left/Right** move between the cards. A Shard card is drawn like Picture mode: its rows come from the Vetro service
+(`GET /plugins/launcher/api/card?plugin=<id>`, a choice `POST …/card-select?plugin=<id>&row=<row>`, tab-separated lines, read
+with curl off the main loop, `Core/ShardCard.cs`); the dock never runs the Shard. Not tried on a TV yet.
+The Task manager lists the apps that are running, the biggest first: name, CPU (on a wide card) and memory (private RAM
+plus swap of the app and its web renderers). **OK** switches to the selected app, **holding OK** (0.8 s) closes it (`app_launcher -t`, then
+`-k` if it is still there two seconds later), **Up** on the first row or **Back** returns to the apps. A tap acts
+only when the key comes up (read from the input device and from the window), so a click never closes an app. Only visible UI apps are listed: Live TV, the
+on-screen menus, HbbTV, the keyboard and Vetro itself are left out (`Core/Tasks.cs`). Samsung's Home is listed, as
+it is often the largest. The list refreshes every 1.5 s while open; `--no-tasks` switches the page off. Vetro starts the dock with
+`--no-tasks` unless the **Task manager** switch is on (Vetro UI, Launcher tab), and always in custom-launcher mode.
+A "Task manager" hint with a down chevron sits under the apps bar, mirroring the "Source" hint above it; to
+make room the dock window has a second hint band at the bottom, so the bar sits 46 px higher (`--no-tasks` drops both).
 
 The Samsung Home pill uses the original upstream `app_launcher -s` request, with the existing fallback for firmware that defines one. On the tested Tizen 4 TV this programmatic launch is not reliable. Timing retries, forced user/environment settings and HbbTV workarounds are not included. Leave the launcher disabled when you need the normal Samsung Home key.
 
@@ -22,7 +47,8 @@ The Samsung Home pill uses the original upstream `app_launcher -s` request, with
 - `src/` the dock. `Core/` is pure logic (layout, catalog, input decoding) and has tests;
   `Native/` holds the P/Invoke surface; `Ui/` draws with EFL.
 - `tests/` desktop tests of `Core/`: `cd tests && dotnet run`.
-- `res/` the images (bar, shadow, glow, focus ring) and the generic Settings/HDMI icons.
+- `res/` the images (sheet and rim, glow, focus ring and capsule) and the generic Settings/HDMI icons. `dock_bg.png` and
+  `shadow.png` are still generated but no longer drawn.
 - `tools/` generators for those images (`make-glass.cjs`, `system_icons.py`).
 - `designer/` a standalone page to try looks; `designer/chosen.json` is the design the launcher currently draws.
 
@@ -34,6 +60,11 @@ code. `app/tests/dock-design.test.cjs` checks them against `designer/chosen.json
 
 One rule ties the shapes together: an icon's corner radius is a percentage of its side (`Design.IconRadiusPct`),
 and the focus ring and the glow are built from that same radius, at every size the icon takes while it grows.
+
+The bar (apps and Sources) and the Task manager panel use the material of the 123 pad and the volume pill: `pill_rim`
+(white at `ShellBorderAlpha`) 2 px outside the sheet, then `pill_bg` (`ShellColor` at `VolumeAlpha`), nine-sliced to
+`Design.PanelRadius` (40: the icons' 15 plus the bar's 26 of padding, so the corners are concentric), with no drop shadow.
+The Task manager marks its selected row with the 123 pad's ice capsule (`pill_cap`), and that row's texts turn slate.
 
 To change the look: edit `chosen.json` (or paste a new designer export there), update the matching constants in
 `Design.cs` / `Layout.cs`, then run `node tools/make-glass.cjs` and `python3 tools/system_icons.py`-based

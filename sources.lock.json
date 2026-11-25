@@ -1,0 +1,17 @@
+{
+  "schema": 1,
+  "sources": {
+    "upstream": {
+      "repository": "https://github.com/andrearicci93/vetro",
+      "version": "0.7.0",
+      "tag": "v0.7.0",
+      "commit": "fb83fd055681127761e322b434d82c4626a55a05"
+    },
+    "tizen4Port": {
+      "repository": "https://github.com/GiuseppeFiorillo/vetro-tizen4",
+      "tag": "v0.5.0-tizen4",
+      "commit": "eb63e9dd082c0f3fee9f75c0d0a078624e9790fd"
+    }
+  },
+  "note": "Original 0.7.0 source with the version-matched 0.5.0 Tizen 4 port and documented compatibility/runtime changes. USB installer excluded."
+}
